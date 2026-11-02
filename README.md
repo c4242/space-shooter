@@ -1,13 +1,20 @@
 # Sable Rift
 
-A 3D space combat and trading game that runs in the browser, in the spirit of classic cockpit space sims, with Newtonian flight physics. Fly from a full cockpit across three star systems: trade, smuggle, hunt pirates, deal with the police, and play through a four-chapter story campaign. Works with keyboard + mouse, gamepad, or touch.
+A 3D space combat and trading game that runs in the browser, in the spirit of classic cockpit space sims, with Newtonian flight physics. Fly from a full cockpit across five star systems: trade, smuggle, hunt pirates, deal with the police, and play through a four-chapter story campaign. Works with keyboard + mouse, gamepad, or touch.
 
 **Play:** https://c4242.github.io/space-shooter/
 
 ## Features
 
 - **Newtonian flight:** the engine pushes along your nose and you keep drifting until you thrust the other way. Turning does not change your direction of travel. The HUD's prograde marker (green ⊕) shows where you're actually going, and the retrograde marker (amber ⊗) is where to point and burn to stop. Hold **C** for manoeuvring-thruster braking and **Z** for reverse thrust. Gravity adds to your momentum.
-- **Three star systems linked by jump gates:** *Sable Rift* (black hole, frontier), *Corvane* (Authority core: shipyards and heavy patrols) and *Hollow Reach* (lawless red dwarf with the Ashfang outpost Gallows Rock). Fly to a gate and press **J**. The nav map includes a galaxy view.
+- **Five star systems linked by a loop of jump gates:**
+  - *Sable Rift:* black hole, frontier.
+  - *Corvane:* Authority core, with shipyards and heavy patrols.
+  - *Hollow Reach:* lawless red dwarf with the Ashfang outpost Gallows Rock.
+  - *Tessaly:* binary star, with a garden world, a farming ring and an observatory.
+  - *Kharon:* pulsar with sweeping beams and a radiation zone that strips shields, plus a mining colony with cheap ore.
+
+  Fly to a gate and press **J**. The nav map includes a galaxy view.
 - **Story campaign, "The Rift Signal":** four chapters with briefings, ambushes, a convoy interception and a final battle with the warlord Krell. Start it at Meridian Highport (STORY tab when docked).
 - **Police and reputation:** Authority patrols scan your cargo for contraband and fight pirates. You have reputation with the Authority and with Ashfang. Shooting civilians or police, or being caught smuggling, makes you **WANTED**: patrols attack on sight and stations charge a fine before you can dock. Gallows Rock sells contraband and offers smuggling jobs.
 - **Missile types:** Dart heat-seekers (fire and forget, 45 damage), Seekers (1.2 s lock, 85 damage) and Torpedoes (3 s lock, 320 damage, 2 rack slots; sold only at Corvane Shipyards and Gallows Rock). **G** switches type.

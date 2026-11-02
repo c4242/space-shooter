@@ -1720,7 +1720,7 @@ function frame(now) {
       resetChase();
       hud.cracks = [];
       p.shieldF = p.shieldR = p.shieldMax;
-      p.vel.set(0, 0, 0); p.throttle = 0;
+      p.vel.set(0, 0, 0); p.throttle = 0; p.radiation = 0;
       clearCombat();
       audio.engine(0, false, false);
       audio.gravity(0);

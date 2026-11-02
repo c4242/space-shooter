@@ -301,6 +301,7 @@ export class UI {
         <span>Credits: <b>${g.credits.toLocaleString()}</b> cr</span>
         <span>Cargo: <b>${used}/${g.cargoCap}</b></span>
         <span>Kills: <b>${g.kills}</b></span>
+        <span>Rank: <b>${g.rankName()}</b></span>
         <span class="rep">Authority: <b>${repLabel(g.rep.authority)}</b> (${g.rep.authority})</span>
         <span class="rep">Ashfang: <b>${repLabel(g.rep.ashfang)}</b> (${g.rep.ashfang})</span>
       </div>

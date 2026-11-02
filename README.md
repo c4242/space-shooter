@@ -36,6 +36,8 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
   - **Ashfang Leviathan (1.5 km):** a pirate mothership at the Leviathan Drydock in Hollow Reach. Bounty 40,000 cr; bring torpedoes.
   - Capital ships are solid, shots must hit the actual hull, and they die in long chains of explosions.
 - **Settings:** the pause screen has volume, mouse sensitivity, invert, mouse-flight and graphics-quality settings, saved in your browser.
+- **Pilot ranks:** climb from Cadet to Legend by scoring kills, contracts, deliveries, rescues and story chapters. Each rank adds 5% to bounties and contract pay; promotions get a banner.
+- **Random events:** distress calls (save a freighter from raiders for a reward) and derelict wrecks with free cargo. Some derelicts are Ashfang traps.
 - **Living system:** civilian freighters fly between the stations. Pirates will prey on them, and shooting one down gets you fined.
 - **Docked at a station:**
   - **Market:** buy low and sell high at the other station.

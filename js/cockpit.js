@@ -321,7 +321,7 @@ export class Cockpit {
       ['ARMR', ar < 0.3 ? 'red*' : ar < 0.7 ? 'amber' : ''],
       ['INCM', incoming ? 'red*' : ''],
       ['TRCK', tracked ? 'amber*' : ''],
-      ['GRAV', p.gAccel > 80 ? 'red*' : p.gAccel > 15 ? 'amber' : ''],
+      p.radiation > 0 ? ['RAD', p.radiation > 0.4 ? 'red*' : 'amber*'] : ['GRAV', p.gAccel > 80 ? 'red*' : p.gAccel > 15 ? 'amber' : ''],
       ['FUEL', p.abFuel < 20 ? 'amber*' : ''],
       ['AUTO', g.autopilotStatus().ok ? 'green' : ''],
       ['DOCK', g.dockableStation() ? 'green' : ''],

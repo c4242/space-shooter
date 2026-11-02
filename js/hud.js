@@ -136,6 +136,16 @@ export class Hud {
   }
 
   drawCrosshair(ctx) {
+    const g = this.g;
+    const tags = [];
+    if (g.flightAssist) tags.push('FLIGHT ASSIST');
+    if (g.matching) tags.push('MATCHING VELOCITY');
+    if (tags.length) {
+      ctx.font = '11px "Share Tech Mono", monospace';
+      ctx.fillStyle = 'rgba(125,255,176,0.75)'; ctx.textAlign = 'center';
+      ctx.fillText(tags.join('  ·  '), this.W / 2, this.viewH / 2 + 42);
+      ctx.font = '13px "Share Tech Mono", monospace';
+    }
     const cx = this.W / 2, cy = this.viewH / 2;
     ctx.strokeStyle = `rgba(${C.hud},0.9)`; ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -180,6 +190,13 @@ export class Hud {
         ctx.beginPath(); ctx.arc(pr.x, pr.y, 8, 0, Math.PI * 2); ctx.stroke();
         ctx.fillStyle = C.yellow; ctx.textAlign = 'center'; ctx.fillText('MSL', pr.x, pr.y - 12);
       }
+    }
+    for (const pod of g.salvage.pods) {
+      if (pod === g.target || pod.pos.distanceTo(p.pos) > 6000) continue;
+      const pr = this.project(pod.pos);
+      if (!pr.on) continue;
+      ctx.strokeStyle = 'rgba(255,200,90,0.85)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(pr.x, pr.y - 5); ctx.lineTo(pr.x + 5, pr.y); ctx.lineTo(pr.x, pr.y + 5); ctx.lineTo(pr.x - 5, pr.y); ctx.closePath(); ctx.stroke();
     }
     for (const st of g.world.stations) {
       if (st === g.target) continue;

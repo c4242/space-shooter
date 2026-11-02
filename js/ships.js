@@ -55,7 +55,79 @@ export function volAt(game, pos) {
 // Models (built from primitives)
 // ---------------------------------------------------------------------------
 
-function mat(color, o = {}) { return new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.35, ...o }); }
+// Procedural hull plating: panel seams, rivet lines and grime, used as colour and bump map.
+export const PANEL_TEX = (() => {
+  const S = 512, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 90; i++) {
+    const v = 200 + Math.random() * 45 | 0;
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.fillRect(Math.random() * S | 0, Math.random() * S | 0, 20 + Math.random() * 140 | 0, 20 + Math.random() * 100 | 0);
+  }
+  g.strokeStyle = '#6c6c6c'; g.lineWidth = 2;
+  const cut = (x0, y0, x1, y1, d) => {
+    if (d > 4 || (d > 1 && Math.random() < 0.25)) { g.strokeRect(x0, y0, x1 - x0, y1 - y0); return; }
+    if ((x1 - x0) > (y1 - y0)) { const m = x0 + (x1 - x0) * (0.3 + Math.random() * 0.4); cut(x0, y0, m, y1, d + 1); cut(m, y0, x1, y1, d + 1); }
+    else { const m = y0 + (y1 - y0) * (0.3 + Math.random() * 0.4); cut(x0, y0, x1, m, d + 1); cut(x0, m, x1, y1, d + 1); }
+  };
+  cut(0, 0, S, S, 0);
+  g.fillStyle = '#7a7a7a';
+  for (let i = 0; i < 40; i++) { const x = Math.random() * S, y = Math.random() * S; for (let k = 0; k < 8; k++) g.fillRect(x + k * 7, y, 2, 2); }
+  for (let i = 0; i < 600; i++) { g.fillStyle = `rgba(60,55,50,${Math.random() * 0.06})`; g.fillRect(Math.random() * S, Math.random() * S, 3 + Math.random() * 30, 1 + Math.random() * 3); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+})();
+
+function mat(color, o = {}) {
+  return new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.42, envMapIntensity: 0.35, map: PANEL_TEX, bumpMap: PANEL_TEX, bumpScale: 0.6, ...o });
+}
+
+// Engine exhaust plume: an additive cone that fades along its length; length follows thrust.
+const PLUME_GEO = new THREE.ConeGeometry(1, 1, 20, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.5);
+export function plumeMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: { color: { value: new THREE.Color(...color) }, time: { value: 0 }, power: { value: 1 } },
+    vertexShader: `
+      #include <common>
+      #include <logdepthbuf_pars_vertex>
+      varying float vZ; varying vec3 vN; varying vec3 vV;
+      void main() {
+        vZ = position.z;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
+        gl_Position = projectionMatrix * mv;
+        #include <logdepthbuf_vertex>
+      }`,
+    fragmentShader: `
+      #include <common>
+      #include <logdepthbuf_pars_fragment>
+      uniform vec3 color; uniform float time; uniform float power;
+      varying float vZ; varying vec3 vN; varying vec3 vV;
+      void main() {
+        #include <logdepthbuf_fragment>
+        float along = 1.0 - vZ;
+        float core = pow(abs(dot(vN, vV)), 1.5);
+        float flick = 0.85 + 0.15 * sin(time * 60.0 + vZ * 20.0);
+        vec3 c = mix(color, vec3(3.0), pow(along, 6.0) * 0.6);
+        gl_FragColor = vec4(c * pow(along, 1.8) * core * flick * power, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+export function addPlume(group, pos, radius, color) {
+  const m = new THREE.Mesh(PLUME_GEO, plumeMaterial(color));
+  m.position.copy(pos);
+  m.scale.set(radius, radius, radius * 6);
+  m.userData.base = radius;
+  m.renderOrder = 4;
+  group.add(m);
+  return m;
+}
 function part(g, geo, m, p = [0, 0, 0], r = [0, 0, 0], s = null) {
   const mesh = new THREE.Mesh(geo, m);
   mesh.position.set(...p); mesh.rotation.set(...r);
@@ -259,6 +331,8 @@ export class Ship {
     const m = BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
     this.exhaust = m.exhaust; this.engineColor = m.engineColor; this.lightbar = m.lightbar || null;
+    // One plume per engine glow, sized from the glow (positions are in the glow's parent space).
+    this.plumes = this.glows.map(gl => addPlume(gl.parent, gl.position, gl.userData.base * 0.16, this.engineColor.map(c => c * 0.8)));
     this.vel = V(); this.angVel = V(); this.rcsCmd = V();
     this.speed = 0; this.throttle = 0; this.afterburner = false; this.retro = false; this.gAccel = 0;
     this.alive = true; this.lastHit = -10; this.gunCd = 0; this.energy = 100;
@@ -556,6 +630,7 @@ function steer(s, vd, dt, aim) {
 }
 
 function haulerAI(s, game, dt) {
+  if (!s.dest) s.dest = { pos: s.pos.clone().addScaledVector(forwardOf(s.obj, V()), 60000) };
   s.recentHits = Math.max(0, s.recentHits - dt * 0.25);
   const to = _b.subVectors(s.dest.pos, s.pos);
   const d = to.length();

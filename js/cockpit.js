@@ -407,6 +407,7 @@ export class Cockpit {
     const nav = g.navs[g.navIndex];
     if (nav) plot(nav.pos, '#7fd8ff', s * 1.3, 'dia');
     for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : sh.team === 'police' ? '#6ab0ff' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
+    for (const pod of g.salvage.pods) if (pod.pos.distanceTo(p.pos) < 8000) plot(pod.pos, '#ffc85a', s * 0.9, 'dia', pod === g.target);
     for (const m of g.missiles) if (m.mesh.position.distanceTo(p.pos) < 8000) plot(m.mesh.position, '#ffe066', s * 0.8, 'circle');
     c.restore();
     // Nav / gravity readout under the radar
@@ -524,6 +525,9 @@ export class Cockpit {
         arc(-Math.PI * 0.22, Math.PI * 0.22, af, false);
         label(c, 'SHD', cx - R + 12 * u, cy + R * 0.62, fs * 0.8, phos(0.6));
         label(c, 'ARM', cx + R - 12 * u, cy + R * 0.62, fs * 0.8, phos(0.6));
+      } else if (tg.isPod) {
+        label(c, `Contents: ${tg.qty} t ${tg.cm.name}`, s.x + s.w / 2, s.y + s.h - 26 * u, fs * 0.9, '#ffd36b');
+        label(c, 'FLY THROUGH TO SCOOP · B MATCHES SPEED', s.x + s.w / 2, s.y + s.h - 10 * u, fs * 0.8, phos(0.7));
       } else if (tg.isStation) {
         label(c, tg.pos.distanceTo(p.pos) < 2200 ? 'D: REQUEST DOCKING' : 'DOCKING RANGE 2.2 km', s.x + s.w / 2, s.y + s.h - 10 * u, fs * 0.9, phos(0.85));
       }

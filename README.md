@@ -18,6 +18,7 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 - **Star system:** a sun, three generated planets (one with rings), an asteroid belt, two trading stations and five nav points.
 - **Black hole:** the *Sable Rift*. Its gravity pulls harder the closer you get, it has a glowing accretion disk and bends light around it, and crossing the event horizon kills you.
 - **Combat:** twin lasers, homing missiles that need a lock, decoys, shield-impact flashes and smoking damaged ships. Two pirate types: nimble Raiders and heavily armed Marauders. Each has its own AI and missiles and pays a bounty.
+- **Salvage:** destroyed pirates drop glowing cargo pods. Target them with **T**, match speed with **B** and fly through them to scoop the goods into your hold.
 - **Living system:** civilian freighters fly between the stations. Pirates will prey on them, and shooting one down gets you fined.
 - **Docked at a station:**
   - **Market:** buy low and sell high at the other station.
@@ -28,6 +29,7 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 - **Autopilot:** a cinematic external shot of your ship streaking across the screen, then you arrive at the selected nav point.
 - **Graphics:**
   - Pitch-black space with crisp pinpoint stars and no haze.
+  - Panelled hull plating on ships and stations, textured asteroids, and engine plumes that grow with thrust.
   - An animated star surface and lens flares (starburst, streak, ghosts). Planets block the flare.
   - Planets with true day/night sides, city lights, ocean glints and glowing atmosphere rims.
   - Black-hole lensing, explosions with shockwaves and tumbling debris, bloom, MSAA, and a subtle vignette.
@@ -43,6 +45,7 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 | Roll | **Q / E** |
 | Thrust | **W / S** or **+ / −** (throttle = engine thrust), **Backspace** = cut thrust |
 | Brake / reverse thrust | hold **C** (thrusters cancel drift) / hold **Z** |
+| Flight assist / match velocity | **Y** toggles flight assist (thrusters cancel sideways drift) / hold **B** to match the target's velocity |
 | Afterburner | hold **Tab** |
 | Lasers | **Space** or left click |
 | Missile | **Enter** or right click; **G** switches Dart / Seeker / Torpedo |
@@ -82,6 +85,7 @@ Then open http://localhost:8000.
 | `js/career.js` | Save/load, reputation, contracts, jump routing |
 | `js/story.js` | Story campaign chapters |
 | `js/touch.js` | Touch controls |
+| `js/salvage.js` | Cargo pods dropped by destroyed ships |
 | `js/effects.js` | GPU particle system (explosions, trails, sparks) |
 | `js/lensing.js` | Black-hole lensing post-process shader |
 | `js/shaders.js` | Star, planet and atmosphere shaders; lens flare and lens finish passes |

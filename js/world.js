@@ -252,9 +252,54 @@ export const COMMODITIES = [
 // Station model
 // ---------------------------------------------------------------------------
 
+let _stPanels = null;
+function stationPanels() {
+  if (_stPanels) return _stPanels;
+  const S = 512, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.fillStyle = '#cfcfcf'; g.fillRect(0, 0, S, S);
+  for (let y = 0; y < S; y += 32) for (let x = 0; x < S; x += 64) {
+    const v = 175 + Math.random() * 70 | 0;
+    g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x + 1, y + 1, 62, 30);
+  }
+  g.fillStyle = '#5a5a5a';
+  for (let i = 0; i < 30; i++) g.fillRect(Math.random() * S, Math.random() * S, 40 + Math.random() * 120, 6);
+  _stPanels = new THREE.CanvasTexture(c);
+  _stPanels.wrapS = _stPanels.wrapT = THREE.RepeatWrapping;
+  _stPanels.repeat.set(4, 4);
+  _stPanels.colorSpace = THREE.SRGBColorSpace;
+  return _stPanels;
+}
+
+let _rockTex = null;
+function rockTexture() {
+  if (_rockTex) return _rockTex;
+  const n = makeNoise(5);
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const img = g.createImageData(S, S);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    // Tileable: sample noise on a torus.
+    const a = i / S * Math.PI * 2, b = j / S * Math.PI * 2;
+    let v = n(Math.cos(a) * 2 + 5, Math.sin(a) * 2 + Math.cos(b) * 2, Math.sin(b) * 2, 6);
+    const crater = Math.abs(n(Math.cos(a) * 5, Math.sin(a) * 5 + Math.cos(b) * 5, Math.sin(b) * 5 + 9, 2) - 0.5);
+    if (crater < 0.03) v -= 0.25;
+    const k = Math.max(0, Math.min(255, v * 300 - 20));
+    const o = (j * S + i) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = k; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  _rockTex = new THREE.CanvasTexture(c);
+  _rockTex.wrapS = _rockTex.wrapT = THREE.RepeatWrapping;
+  _rockTex.colorSpace = THREE.SRGBColorSpace;
+  return _rockTex;
+}
+
 export function makeStation(accent) {
   const g = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({ color: 0x8c939c, metalness: 0.6, roughness: 0.45, envMapIntensity: 0.3 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x8c939c, metalness: 0.6, roughness: 0.45, envMapIntensity: 0.3, map: stationPanels(), bumpMap: stationPanels(), bumpScale: 1.5 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x3a3f46, metalness: 0.5, roughness: 0.6 });
   const panelMat = new THREE.MeshStandardMaterial({ color: 0x1a2a55, metalness: 0.8, roughness: 0.3, emissive: 0x050a20 });
   const ringMat = new THREE.MeshStandardMaterial({
@@ -554,7 +599,7 @@ function buildWorld(id) {
     rockGeo.computeVertexNormals();
     const ROCKS = 340;
     const rockColor = id === 'hollow' ? 0x6b5a54 : id === 'corvane' ? 0x7d8590 : 0x75685b;
-    const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ color: rockColor, roughness: 0.95, metalness: 0.05, flatShading: true, envMapIntensity: 0.15 }), ROCKS);
+    const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ color: rockColor, roughness: 0.95, metalness: 0.05, flatShading: true, envMapIntensity: 0.15, map: rockTexture(), bumpMap: rockTexture(), bumpScale: 3 }), ROCKS);
     rocks.frustumCulled = false;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sv = new THREE.Vector3();
     const rockData = [];

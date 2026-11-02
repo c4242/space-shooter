@@ -20,6 +20,7 @@ import { Hud, fmtDist } from './hud.js';
 import { UI } from './ui.js';
 import { Cockpit } from './cockpit.js';
 import { initTouch } from './touch.js';
+import { Salvage } from './salvage.js';
 import { audio } from './audio.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -78,7 +79,7 @@ const game = {
   credits: 0, cargo: {}, cargoCap: 25, kills: 0, rep: { authority: 0, ashfang: 0 },
   upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 }, missions: [], missionSeq: 0, trafficT: 8, policeT: 20,
   story: newStory(),
-  invertPitch: false, mouseFlight: true, touchMode: false,
+  invertPitch: false, mouseFlight: true, touchMode: false, flightAssist: false, matching: false,
   mouse: { x: innerWidth / 2, y: innerHeight / 2, inside: false, left: false },
   ap: null, jump: null, fade: 0, shake: 0, dashVisible: false, dashH: 0,
   timers: [], beepT: 0, warnT: 0, alarmT: 0, bumpCd: 0, deadT: 0, deathShown: false,
@@ -89,6 +90,7 @@ game.world = getWorld(scene, 'sable');
 game.navs = game.world.navs;
 game.fx = new Particles(scene);
 game.bubbles = new Bubbles(scene);
+const salvage = game.salvage = new Salvage(game);
 const dust = new Dust(scene);
 const hud = game.hud = new Hud(game);
 const ui = game.ui = new UI(game);
@@ -163,6 +165,7 @@ function clearCombat() {
   for (const m of game.missiles) scene.remove(m.mesh);
   game.ships = game.ships.filter(s => s.isPlayer);
   game.lasers = []; game.missiles = []; game.decoys = [];
+  salvage.clear();
 }
 
 function setSystem(id) {
@@ -372,7 +375,8 @@ function cycleTarget() {
   const ships = game.ships.filter(s => s.alive && !s.isPlayer && s.pos.distanceTo(p.pos) < 30000)
     .sort((a, b) => a.pos.distanceTo(p.pos) - b.pos.distanceTo(p.pos));
   const stations = [...game.world.stations].sort((a, b) => a.pos.distanceTo(p.pos) - b.pos.distanceTo(p.pos));
-  const list = [...ships, ...stations];
+  const pods = salvage.pods.filter(x => x.pos.distanceTo(p.pos) < 8000).sort((a, b) => a.pos.distanceTo(p.pos) - b.pos.distanceTo(p.pos));
+  const list = [...ships, ...pods, ...stations];
   const i = list.indexOf(game.target);
   game.target = list[(i + 1) % list.length];
   p.lockTime = 0;
@@ -720,6 +724,7 @@ function updateTraffic(dt) {
 
 game.onShipDestroyed = (s, killer) => {
   if (game.target === s) game.target = null;
+  if (s.team !== 'police') salvage.drop(s);
   const byPlayer = killer && killer.isPlayer;
   if (s.team === 'civ') {
     if (byPlayer) {
@@ -930,7 +935,24 @@ function playerControl(dt) {
   p.retro = !!k.KeyZ;
   // Brake: manoeuvring thrusters push against your velocity.
   p.rcsCmd.set(0, 0, 0);
-  if (k.KeyC || pad.btn[11] || touch.hold.brake) p.rcsCmd.copy(p.vel).multiplyScalar(-1 / Math.max(dt, 0.05));
+  const tdt = 1 / Math.max(dt, 0.05);
+  const tgt = game.target;
+  game.matching = !!(k.KeyB || touch.hold.match) && !!tgt;
+  if (k.KeyC || pad.btn[11] || touch.hold.brake) p.rcsCmd.copy(p.vel).multiplyScalar(-tdt);
+  else if (game.matching) {
+    // Match velocity with the target (stations are stationary).
+    p.rcsCmd.copy(tgt.vel || V()).sub(p.vel).multiplyScalar(tdt);
+  } else if (game.flightAssist) {
+    // Flight assist: thrusters cancel sideways drift so the ship goes where it points.
+    const f = forwardOf(p.obj);
+    const lat = p.vel.clone().addScaledVector(f, -p.vel.dot(f));
+    p.rcsCmd.copy(lat).multiplyScalar(-tdt);
+    if (p.throttle === 0 && !p.afterburner && !p.retro) {
+      // With the engine idle, also bleed forward speed down gently toward a stop.
+      const fwd = p.vel.dot(f);
+      if (fwd < 0) p.rcsCmd.addScaledVector(f, -fwd * tdt);
+    }
+  }
 
   p.gunCd -= dt;
   if ((k.Space || game.mouse.left || pad.btn[7] || touch.hold.fire) && p.gunCd <= 0 && p.energy >= p.shotCost) fireLasers(game, p);
@@ -970,7 +992,7 @@ function playerSystems(dt) {
 
   const eng = Math.max(p.throttle, p.retro ? 0.5 : 0, p.rcsCmd.lengthSq() > 1 ? 0.25 : 0);
   audio.engine(eng * 0.7 + (p.afterburner ? 0.4 : 0), p.afterburner, true);
-  if (game.target && game.target.team && !game.target.alive) game.target = null;
+  if (game.target && (game.target.team || game.target.isPod) && !game.target.alive) game.target = null;
 }
 
 function bump(center, r) {
@@ -1007,6 +1029,21 @@ function checkCollisions(dt) {
   for (const st of w.stations) if (st.collide(p.pos, p.radius)) { bump(st.pos, 0); return; }
 }
 
+function scoop(pod) {
+  const free = game.cargoCap - game.cargoUsed();
+  if (free <= 0) {
+    if (!pod.fullMsg || game.time - pod.fullMsg > 6) { pod.fullMsg = game.time; hud.msg('Cargo hold full: cannot scoop pod.', COL.warn); }
+    return false;
+  }
+  const q = Math.min(free, pod.qty);
+  const c = game.cargo[pod.cm.id] || (game.cargo[pod.cm.id] = { qty: 0, cost: 0 });
+  c.qty += q;
+  if (game.target === pod) game.target = null;
+  hud.msg(`Scooped ${q} t of ${pod.cm.name}.`, COL.good);
+  audio.cash();
+  return true;
+}
+
 function updateFlight(dt) {
   game.time += dt;
   const p = game.player;
@@ -1016,6 +1053,7 @@ function updateFlight(dt) {
   updateLasers(game, dt);
   updateMissiles(game, dt);
   updateDecoys(game, dt);
+  salvage.update(dt, p, scoop);
   if (p.alive && game.state === 'flight') {
     playerSystems(dt);
     checkCollisions(dt);
@@ -1039,8 +1077,17 @@ function updateShipVisuals(dt) {
   for (const s of game.ships) {
     if (!s.alive) continue;
     const thrust = s.mainThrust || 0;
-    const k = (0.35 + 0.9 * Math.min(1.3, thrust)) * (s.afterburner ? 1.8 : 1) * (0.92 + Math.random() * 0.16);
+    // Nozzle glow stays compact; the plume mesh shows the thrust.
+    const k = (0.4 + 0.45 * Math.min(1.3, thrust)) * (s.afterburner ? 1.25 : 1) * (0.92 + Math.random() * 0.16);
     for (const gl of s.glows) gl.scale.setScalar(gl.userData.base * k);
+    const pl = Math.min(1.6, thrust * (s.afterburner ? 1.9 : 1));
+    for (const m of s.plumes || []) {
+      m.visible = pl > 0.03;
+      const r = m.userData.base * (0.75 + 0.35 * Math.min(1, pl));
+      m.scale.set(r, r, m.userData.base * 7 * pl * (0.9 + Math.random() * 0.2));
+      m.material.uniforms.time.value = t;
+      m.material.uniforms.power.value = s.afterburner ? 1.6 : 1;
+    }
     if (s.lightbar) { const on = (t * 3 % 1) < 0.5; s.lightbar[0].visible = on; s.lightbar[1].visible = !on; }
     if (s.isPlayer && (game.view === 'cockpit' || game.state === 'autopilot')) continue;
     const hp = s.armor / s.armorMax;
@@ -1240,6 +1287,11 @@ function onKey(code) {
     case 'KeyD': requestDock(); break;
     case 'KeyJ': startJump(); break;
     case 'KeyG': cycleMissile(); break;
+    case 'KeyY':
+      game.flightAssist = !game.flightAssist;
+      hud.msg(game.flightAssist ? 'Flight assist ON: thrusters cancel drift.' : 'Flight assist OFF: full Newtonian.', COL.comm);
+      audio.blip();
+      break;
     case 'KeyX':
       if (launchDecoy(game)) hud.msg(`Decoy away (${game.player.decoys} left).`, COL.comm);
       else { hud.msg('No decoys left.', COL.warn); audio.denied(); }

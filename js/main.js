@@ -1216,6 +1216,23 @@ function playerControl(dt) {
 
 function playerSystems(dt) {
   const p = game.player;
+  // Pulsar radiation: inside the zone shields drain, then armour cooks.
+  const pul = game.world.pulsar;
+  p.radiation = 0;
+  if (pul) {
+    const d = p.pos.length();
+    if (d < pul.radiation) {
+      const k = 1 - d / pul.radiation;
+      p.radiation = k;
+      const dmg = 35 * k * k * dt;
+      const fromF = p.shieldF > 0, fromR = p.shieldR > 0;
+      if (fromF || fromR) { p.shieldF = Math.max(0, p.shieldF - dmg); p.shieldR = Math.max(0, p.shieldR - dmg); p.lastHit = game.time; }
+      else p.armor -= dmg * 0.5;
+      game.radT = (game.radT || 0) - dt;
+      if (game.radT <= 0) { game.radT = 6; hud.msg(`RADIATION: pulsar exposure ${Math.round(k * 100)}%. Get clear of the star!`, COL.warn); audio.alarm(); }
+      if (p.armor <= 0) { playerDies('Your ship was cooked by pulsar radiation.'); return; }
+    }
+  }
   // Damage-control crews patch systems slowly, but only up to 50% in the field.
   let changed = false;
   for (const k in p.sys) if (p.sys[k] < 0.5) { p.sys[k] = Math.min(0.5, p.sys[k] + 0.012 * dt); changed = true; }

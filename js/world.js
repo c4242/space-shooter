@@ -408,6 +408,7 @@ export const SYSTEMS = {
       { name: 'Picket Line', kind: 'relay', pos: [-110000, 12000, -10000], encounter: 0.4 },
       { name: 'Jump Gate: Sable Rift', kind: 'jump', to: 'sable', pos: [-120000, -5000, 90000], encounter: 0.15 },
       { name: 'Jump Gate: Hollow Reach', kind: 'jump', to: 'hollow', pos: [125000, 8000, -80000], encounter: 0.3 },
+      { name: 'Jump Gate: Tessaly', kind: 'jump', to: 'tessaly', pos: [60000, 20000, 140000], encounter: 0.15 },
     ],
   },
   hollow: {
@@ -430,6 +431,51 @@ export const SYSTEMS = {
       { name: 'Leviathan Drydock', kind: 'relay', pos: [95000, -12000, -40000], encounter: 0 },
       { name: 'Jump Gate: Sable Rift', kind: 'jump', to: 'sable', pos: [120000, -8000, 60000], encounter: 0.4 },
       { name: 'Jump Gate: Corvane', kind: 'jump', to: 'corvane', pos: [-125000, 5000, 20000], encounter: 0.35 },
+      { name: 'Jump Gate: Kharon', kind: 'jump', to: 'kharon', pos: [10000, -15000, -140000], encounter: 0.4 },
+    ],
+  },
+  tessaly: {
+    name: 'Tessaly', blurb: 'Binary star with a garden world: farms, observatories and quiet lanes.',
+    galaxy: [1.25, 0.55], police: 0.6, danger: 0.6,
+    star: { radius: 8500, color: [5, 4.4, 3.2], glow: [2.2, 1.8, 1.2], light: 0xfff2dc },
+    companion: { pos: [-150000, 30000, -110000], radius: 4200, color: [3.2, 3.8, 5.5], glow: [1.3, 1.6, 2.6], light: 0xc8dcff, intensity: 1.4 },
+    planets: [
+      { name: 'Tessaly', tex: () => terraTexture(41, 0.48), lights: () => lightsTexture(41, 0.48), spec: 1, radius: 5800, pos: [55000, -3000, 48000], atmo: 'rgba(120,200,255,', tilt: 0.25, clouds: () => cloudTexture(42), mapColor: '#55b0e8' },
+      { name: 'Vantage', tex: () => iceTexture(17), radius: 2100, pos: [72000, 4000, 30000], atmo: 'rgba(200,220,255,', tilt: 0.05, mapColor: '#c8d6e6' },
+      { name: 'Oro', tex: () => gasTexture(27, [[190, 170, 110], [130, 110, 70], [230, 220, 180], [200, 120, 70]]), radius: 12000, pos: [-70000, 8000, 60000], atmo: 'rgba(255,230,170,', tilt: 0.4, rings: true, mapColor: '#c8b070' },
+    ],
+    stations: [
+      { name: 'Tessaly Agri-Ring', planet: 0, offset: [-9000, 1500, -7000], accent: 0x88ff55, market: LEGAL({ food: 0.45, water: 0.55, ore: 1.4, fuel: 1.25, med: 1.15, tech: 1.35, lux: 1.0 }) },
+      { name: 'Vantage Observatory', planet: 1, offset: [4000, 1200, 3500], accent: 0x55ccff, market: LEGAL({ food: 1.3, water: 1.2, ore: 1.2, fuel: 1.1, med: 0.8, tech: 0.6, lux: 1.3 }) },
+    ],
+    belt: { center: [-20000, 3000, -80000] },
+    navs: [
+      { station: 0 }, { station: 1 },
+      { name: 'Lantern Belt', kind: 'belt', beltOffset: [0, 0, 11500], encounter: 0.4 },
+      { name: 'Twin-Sun Relay', kind: 'relay', pos: [-100000, 25000, -60000], encounter: 0.35 },
+      { name: 'Jump Gate: Corvane', kind: 'jump', to: 'corvane', pos: [125000, -6000, -40000], encounter: 0.15 },
+      { name: 'Jump Gate: Kharon', kind: 'jump', to: 'kharon', pos: [-40000, -10000, 140000], encounter: 0.35 },
+    ],
+  },
+  kharon: {
+    name: 'Kharon', blurb: 'Pulsar system. Radiation beams, rich ore, short lives.',
+    galaxy: [0.2, -1.25], police: 0.15, danger: 1.4,
+    star: { radius: 1800, color: [4, 5, 7], glow: [1.6, 2, 3.4], light: 0xd8e8ff },
+    pulsar: { tilt: [0.35, 0, 0.5], spin: 0.9, radiation: 30000 },
+    planets: [
+      { name: 'Kharon I', tex: () => lavaTexture(23), radius: 3200, pos: [-42000, 2000, 38000], atmo: 'rgba(255,120,80,', tilt: 0.1, mapColor: '#a8482a' },
+      { name: 'Styx', tex: () => iceTexture(31), radius: 4600, pos: [70000, -5000, -50000], atmo: 'rgba(170,200,255,', tilt: 0.3, mapColor: '#9fb4cc' },
+    ],
+    stations: [
+      { name: 'Deepcore Mining Colony', planet: 1, offset: [8000, 2000, 8500], accent: 0xffcc33, market: LEGAL({ food: 1.7, water: 1.5, ore: 0.38, fuel: 0.8, med: 1.9, tech: 1.4, lux: 1.6 }) },
+    ],
+    belt: { center: [20000, 0, 85000] },
+    navs: [
+      { station: 0 },
+      { name: 'Motherlode Field', kind: 'belt', beltOffset: [0, 0, -11500], encounter: 0.8 },
+      { name: 'Beam Survey Buoy', kind: 'beacon', pos: [22000, 9000, -18000], encounter: 0.5 },
+      { name: 'Jump Gate: Hollow Reach', kind: 'jump', to: 'hollow', pos: [-120000, 6000, -60000], encounter: 0.5 },
+      { name: 'Jump Gate: Tessaly', kind: 'jump', to: 'tessaly', pos: [110000, 15000, 90000], encounter: 0.3 },
     ],
   },
 };
@@ -508,6 +554,55 @@ function buildWorld(id) {
   sun.add(glowSprite(new THREE.Color(...def.star.glow).multiplyScalar(0.7), def.star.radius * 4.9, 1, coronaTex));
   world.sunMat = sunMat;
   world.starColor = def.star.glow;
+  const extraSuns = [];
+  if (def.companion) {
+    const C = def.companion;
+    const cm = sunMaterial(C.color);
+    const cs = new THREE.Mesh(new THREE.SphereGeometry(C.radius, 64, 48), cm);
+    cs.position.set(...C.pos);
+    cs.add(glowSprite(new THREE.Color(...C.glow).multiplyScalar(0.7), C.radius * 4.9, 1, coronaTex));
+    root.add(cs);
+    const cl = new THREE.PointLight(C.light, C.intensity, 0, 0);
+    cl.position.set(...C.pos);
+    root.add(cl);
+    extraSuns.push(cm);
+    world.planets.push({ name: def.name + ' B (star)', pos: VA(C.pos), radius: C.radius, star: true, mapColor: '#9fc0ff' });
+  }
+  if (def.pulsar) {
+    // Two opposed radiation beams sweeping around a tilted spin axis.
+    const P = def.pulsar;
+    const spin = new THREE.Group();
+    spin.rotation.set(...P.tilt);
+    const beamMat = new THREE.ShaderMaterial({
+      uniforms: { color: { value: new THREE.Color(...def.star.glow) } },
+      vertexShader: `#include <common>
+        #include <logdepthbuf_pars_vertex>
+        varying float vY; varying vec3 vN; varying vec3 vV;
+        void main() { vY = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv;
+        #include <logdepthbuf_vertex>
+        }`,
+      fragmentShader: `#include <common>
+        #include <logdepthbuf_pars_fragment>
+        uniform vec3 color; varying float vY; varying vec3 vN; varying vec3 vV;
+        void main() {
+          #include <logdepthbuf_fragment>
+          float core = pow(abs(dot(vN, vV)), 2.0);
+          gl_FragColor = vec4(color * core * pow(1.0 - vY, 1.5) * 1.1, 1.0);  // brightest at the star
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    for (const sgn of [1, -1]) {
+      const cone = new THREE.Mesh(new THREE.CylinderGeometry(6000, 150, 160000, 24, 1, true), beamMat);
+      cone.position.y = sgn * 80000;
+      if (sgn < 0) cone.rotation.x = Math.PI;
+      const tiltBeam = new THREE.Group();
+      tiltBeam.rotation.z = 0.5;
+      tiltBeam.add(cone);
+      spin.add(tiltBeam);
+    }
+    root.add(spin);
+    world.pulsar = { group: spin, spin: P.spin, radiation: P.radiation };
+  }
   world.planets.push({ name: def.name + ' (star)', pos: V(0, 0, 0), radius: def.star.radius, star: true, mapColor: '#' + new THREE.Color(...def.star.glow).multiplyScalar(0.45).getHexString() });
 
   // Planets
@@ -653,6 +748,8 @@ function buildWorld(id) {
     world.time += dt;
     const t = world.time;
     sunMat.uniforms.time.value = t;
+    for (const m of extraSuns) m.uniforms.time.value = t;
+    if (world.pulsar) world.pulsar.group.rotation.y = t * world.pulsar.spin;
     sky.position.copy(camera.position);
     for (const p of world.planets) {
       if (p.mesh) p.mesh.rotation.y += dt * 0.008;

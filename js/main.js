@@ -12,7 +12,7 @@ import { LensFinishShader, FlareShader } from './shaders.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
-  hitShipWith, panAt, buildFreighterModel, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
+  hitShipWith, panAt, buildFreighterModel, glowTex, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
 } from './ships.js';
 import { hasSave, loadSave, saveGame, changeRep, REP_WANTED, gateToward, stationNav, RANKS, rankOf, rankBonus } from './career.js';
 import { STORY, newStory, currentStep } from './story.js';
@@ -925,12 +925,21 @@ function startEvent(type) {
       if (o.material.emissive) o.material.emissive.setRGB(0.05, 0.02, 0);
     });
     for (const gl of m.glows) gl.visible = false;
+    // Burning breaches so the hulk reads against black space.
+    const fires = [];
+    for (let i = 0; i < 5; i++) {
+      const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(3.5, 1.4, 0.4), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      f.position.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 70);
+      f.userData.base = 8 + Math.random() * 10;
+      m.group.add(f);
+      fires.push(f);
+    }
     m.group.position.copy(at);
     m.group.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     scene.add(m.group);
     // Two "marauder-sized" drops: 4-6 pods in total.
     for (let i = 0; i < 2; i++) salvage.drop({ pos: at, vel: V(), radius: 140, kind: 'marauder' });
-    game.event = { type, wreck: m.group, at, t: 0, spin: V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.06), trap: Math.random() < 0.35 };
+    game.event = { type, wreck: m.group, fires, at, t: 0, spin: V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.06), trap: Math.random() < 0.35 };
     game.target = salvage.pods[salvage.pods.length - 1] || null;
     hud.msg('Automated salvage beacon: derelict freighter detected. Cargo drifting free. No life signs.', COL.nav);
     audio.blip();
@@ -967,6 +976,7 @@ function updateEvents(dt) {
       clearEvent();
     } else if (E.civ.pos.distanceTo(p.pos) > 35000) clearEvent();
   } else {
+    for (const f of E.fires) f.scale.setScalar(f.userData.base * (0.6 + Math.random() * 0.6));
     E.wreck.rotation.x += E.spin.x * dt; E.wreck.rotation.y += E.spin.y * dt; E.wreck.rotation.z += E.spin.z * dt;
     E.smoke = (E.smoke || 0) - dt;
     if (E.smoke <= 0) {

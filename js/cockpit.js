@@ -279,7 +279,7 @@ export class Cockpit {
     this.drawRadar(c, L.radar, t);
     this.drawRightCluster(c, t);
     this.drawWeapons(c, L.scrL, p);
-    this.drawTargeting(c, L.scrR, t);
+    if (this.commOn()) this.drawComm(c, L.scrR, t); else this.drawTargeting(c, L.scrR, t);
     // Heavy damage makes the electronics glitch.
     const hp = p.armor / p.armorMax;
     if ((hp < 0.35 && Math.random() < 0.08 * (1.4 - hp)) || g.hud.flash > 0.35) {
@@ -506,6 +506,110 @@ export class Cockpit {
     this.screenEnd(c, s);
   }
 
+  // ------------------------------------------------------------------ comms
+  // Spoken messages ("Speaker: text") take over the right screen with an animated portrait.
+  comm(text, color) {
+    const m = /^([^:]{2,40}):\s*(.+)$/.exec(text);
+    if (!m) return;
+    const who = m[1].trim();
+    let kind = null;
+    if (/Control$/.test(who)) kind = 'station';
+    else if (/^(Ashfang|Marauder|Krell|Gallows)/i.test(who)) kind = 'pirate';
+    else if (/^(Patrol|Authority|AUTHORITY|Commodore|Hale)/.test(who)) kind = 'police';
+    else if (/^Wing/.test(who)) kind = 'wing';
+    else if (/^Hauler/.test(who)) kind = 'civ';
+    else if (/^(Varro|Dr\.)/.test(who)) kind = 'scientist';
+    if (!kind) return;
+    let seed = 0;
+    for (const ch of who) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    this.commMsg = { who, text: m[2], kind, seed, t0: performance.now() / 1000, dur: Math.min(7, 2.5 + m[2].length * 0.045) };
+  }
+  commOn() { return this.commMsg && performance.now() / 1000 - this.commMsg.t0 < this.commMsg.dur; }
+
+  drawComm(c, s, t) {
+    const M = this.commMsg, { u } = this.L;
+    const age = t - M.t0;
+    const rnd = k => { const x = Math.sin(M.seed * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+    const tint = { pirate: [255, 110, 90], police: [130, 190, 255], station: [140, 255, 170], wing: [140, 255, 170], civ: [255, 220, 130], scientist: [200, 230, 255] }[M.kind];
+    const col = a => `rgba(${tint[0]},${tint[1]},${tint[2]},${a})`;
+    this.screenBase(c, s);
+    c.fillStyle = `rgba(${tint[0] * 0.05 | 0},${tint[1] * 0.06 | 0},${tint[2] * 0.06 | 0},1)`;
+    c.fillRect(s.x, s.y, s.w, s.h);
+    // Signal acquisition: static that clears in the first half-second
+    const noise = Math.max(0, 1 - age / 0.5) + (M.kind === 'pirate' ? 0.12 : 0.04);
+    const fs = Math.max(9, 10.5 * u);
+    label(c, 'INCOMING TRANSMISSION', s.x + s.w / 2, s.y + 11 * u, fs * 0.9, col(0.9));
+    // Portrait
+    const cx = s.x + s.w * 0.5, cy = s.y + s.h * 0.5, H = s.h * 0.62;
+    const talk = age < M.dur - 0.6 ? Math.abs(Math.sin(age * 13 + Math.sin(age * 5) * 2)) : 0;
+    const blink = (age * 0.7 + rnd(1)) % 3 < 0.12;
+    const headW = H * (0.34 + rnd(2) * 0.08), headH = H * (0.44 + rnd(3) * 0.06);
+    c.save();
+    c.translate(cx + Math.sin(age * 0.9) * 2 * u, cy + H * 0.06);
+    // shoulders / suit
+    c.fillStyle = col(0.25);
+    c.beginPath(); c.ellipse(0, H * 0.55, H * 0.62, H * 0.3, 0, Math.PI, 0); c.fill();
+    c.strokeStyle = col(0.6); c.lineWidth = 1.5; c.stroke();
+    if (M.kind === 'police' || M.kind === 'wing') { c.fillStyle = col(0.5); c.fillRect(-H * 0.07, H * 0.3, H * 0.14, H * 0.06); }
+    // neck
+    c.fillStyle = col(0.3); c.fillRect(-headW * 0.35, H * 0.08, headW * 0.7, H * 0.2);
+    // hair (scientist / station) or helmet (pilots)
+    if (M.kind === 'scientist') {
+      c.fillStyle = col(0.45);
+      c.beginPath(); c.ellipse(0, -headH * 0.1, headW * 1.15, headH * 1.1, 0, 0, Math.PI * 2); c.fill();
+    }
+    // head
+    c.fillStyle = col(0.38);
+    c.beginPath(); c.ellipse(0, -H * 0.12, headW, headH, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = col(0.85); c.stroke();
+    if (M.kind === 'police' || M.kind === 'wing' || M.kind === 'pirate') {
+      // flight helmet shell
+      c.strokeStyle = col(0.9); c.lineWidth = 2.5 * u;
+      c.beginPath(); c.ellipse(0, -H * 0.12, headW * 1.18, headH * 1.12, 0, Math.PI * 1.02, Math.PI * 1.98); c.stroke();
+      c.lineWidth = 1.5;
+    }
+    if (M.kind === 'station') {
+      // headset
+      c.strokeStyle = col(0.9); c.lineWidth = 2;
+      c.beginPath(); c.arc(0, -H * 0.12, headW * 1.08, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+      c.beginPath(); c.moveTo(-headW * 1.02, -H * 0.1); c.quadraticCurveTo(-headW * 0.9, H * 0.12, -headW * 0.25, H * 0.1); c.stroke();
+    }
+    // eyes
+    const ey = -H * 0.17, ex = headW * 0.38;
+    c.fillStyle = col(0.95);
+    for (const sx of [-1, 1]) {
+      if (blink) c.fillRect(sx * ex - headW * 0.14, ey, headW * 0.28, 1.5);
+      else { c.beginPath(); c.ellipse(sx * ex, ey, headW * 0.13, headH * 0.06, 0, 0, Math.PI * 2); c.fill(); }
+    }
+    if (M.kind === 'pirate') {
+      // scar and eyepatch on some
+      c.strokeStyle = col(0.9); c.lineWidth = 2;
+      c.beginPath(); c.moveTo(ex * 0.4, ey - headH * 0.3); c.lineTo(ex * 1.5, ey + headH * 0.4); c.stroke();
+      if (rnd(4) > 0.5) { c.fillStyle = col(0.9); c.beginPath(); c.ellipse(-ex, ey, headW * 0.17, headH * 0.09, 0, 0, Math.PI * 2); c.fill(); c.beginPath(); c.moveTo(-headW, ey - headH * 0.25); c.lineTo(headW * 0.6, ey - headH * 0.35); c.stroke(); }
+    }
+    // brows / nose
+    c.strokeStyle = col(0.7); c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(-ex - headW * 0.15, ey - headH * 0.14); c.lineTo(-ex + headW * 0.12, ey - headH * (M.kind === 'pirate' ? 0.08 : 0.16)); c.stroke();
+    c.beginPath(); c.moveTo(ex + headW * 0.15, ey - headH * 0.14); c.lineTo(ex - headW * 0.12, ey - headH * (M.kind === 'pirate' ? 0.08 : 0.16)); c.stroke();
+    c.beginPath(); c.moveTo(0, ey + headH * 0.05); c.lineTo(-headW * 0.08, ey + headH * 0.32); c.lineTo(headW * 0.04, ey + headH * 0.34); c.stroke();
+    // mouth, animated while speaking
+    const my = -H * 0.12 + headH * 0.48, mw = headW * 0.42;
+    c.fillStyle = 'rgba(0,0,0,0.75)';
+    c.beginPath(); c.ellipse(0, my, mw * (0.8 + talk * 0.2), 1.5 + talk * headH * 0.13, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = col(0.9); c.stroke();
+    c.restore();
+    // static / interference
+    c.fillStyle = col(0.08 + noise * 0.25);
+    for (let i = 0; i < 40 * noise + 6; i++) c.fillRect(s.x + Math.random() * s.w, s.y + Math.random() * s.h, 1 + Math.random() * 30 * noise, 1);
+    if (noise > 0.3) { c.fillStyle = `rgba(0,0,0,${noise * 0.5})`; c.fillRect(s.x, s.y + ((age * 300) % s.h), s.w, 6 * u); }
+    // caption
+    c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(s.x, s.y + s.h - 30 * u, s.w, 30 * u);
+    label(c, M.who.toUpperCase(), s.x + 8 * u, s.y + s.h - 21 * u, fs * 0.85, col(1), 'left');
+    const words = M.text.length > 52 ? M.text.slice(0, 50) + '…' : M.text;
+    label(c, words, s.x + 8 * u, s.y + s.h - 9 * u, fs * 0.75, col(0.75), 'left');
+    this.screenEnd(c, s);
+  }
+
   drawTargeting(c, s, t) {
     const g = this.g, p = g.player, tg = g.target, { u } = this.L;
     this.screenBase(c, s);
@@ -579,7 +683,7 @@ export class Cockpit {
 
     // Target, oriented as you see it
     const tg = g.target;
-    const tm = tg ? (tg.isStation ? this.models.station : this.models[tg.kind] || null) : null;
+    const tm = tg && !this.commOn() ? (tg.isStation ? this.models.station : this.models[tg.kind] || null) : null;
     d = job(L.scrR, tm, m => {
       const src = tg.isStation ? tg.group : tg.obj;
       m.quaternion.copy(g.camera.quaternion).invert().multiply(src.quaternion);

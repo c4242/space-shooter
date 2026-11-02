@@ -47,6 +47,14 @@ export function segSphere(p0, p1, c, r) {
   return px * px + py * py + pz * pz < r * r;
 }
 
+// Stereo pan from where a sound happens relative to the camera.
+const _pan = new THREE.Vector3();
+export function panAt(game, pos) {
+  _pan.copy(pos).applyMatrix4(game.camera.matrixWorldInverse);
+  const l = _pan.length();
+  return l < 1 ? 0 : Math.max(-0.9, Math.min(0.9, _pan.x / l));
+}
+
 export function volAt(game, pos) {
   return Math.max(0, 1 - game.camera.position.distanceTo(pos) / 5000);
 }
@@ -472,7 +480,7 @@ export function fireLasers(game, s) {
   s.energy -= s.shotCost;
   s.gunCd = s.fireRate;
   if (s.isPlayer) audio.laser(1, true);
-  else audio.laser(volAt(game, s.pos), false);
+  else audio.laser(volAt(game, s.pos), false, panAt(game, s.pos));
 }
 
 export function updateLasers(game, dt) {
@@ -536,7 +544,7 @@ export function fireMissile(game, s, target, type = 'seeker') {
     accel: s.isPlayer ? T.accel : 520, turn: s.isPlayer ? T.turn : 1.7, burn: T.burn,
     life: T.life, armed: 0.35, dmg: s.isPlayer ? T.dmg : 55, trail: 0, size: T.size,
   });
-  audio.missile(s.isPlayer ? (type === 'torpedo' ? 1.4 : 1) : Math.max(0.2, volAt(game, s.pos)));
+  audio.missile(s.isPlayer ? (type === 'torpedo' ? 1.4 : 1) : Math.max(0.2, volAt(game, s.pos)), s.isPlayer ? 0 : panAt(game, s.pos));
   return true;
 }
 
@@ -586,7 +594,7 @@ export function updateMissiles(game, dt) {
     }
     if (boom) {
       game.fx.explosion(p1, m.type === 'torpedo' ? 1.2 : 0.55);
-      audio.explosion(volAt(game, p1) * (m.type === 'torpedo' ? 1 : 0.7), m.type === 'torpedo');
+      audio.explosion(volAt(game, p1) * (m.type === 'torpedo' ? 1 : 0.7), m.type === 'torpedo', panAt(game, p1));
       if (victim) hitShipWith(game, victim, m.dmg, p0, m.owner, true);
       game.scene.remove(m.mesh);
       game.missiles.splice(i, 1);
@@ -638,7 +646,7 @@ export function hitShipWith(game, s, dmg, fromPos, src, big = false) {
   game.fx.sparks(at, r.armor ? [4, 2, 0.6] : [0.8, 1.8, 4], big ? 40 : 12);
   if (r.shield && game.bubbles && !(s.isPlayer && game.view === 'cockpit')) game.bubbles.add(s, at);
   if (s.isPlayer) {
-    game.onPlayerHit(r, dmg);
+    game.onPlayerHit(r, dmg, fromPos);
     if (r.armor && Math.random() < Math.min(0.6, dmg / 35)) {
       const keys = Object.keys(SYSTEMS_INFO);
       const k = keys[(Math.random() * keys.length) | 0];
@@ -662,7 +670,7 @@ export function destroyShip(game, s, killer) {
   s.alive = false;
   s.armor = 0;
   game.fx.explosion(s.pos, s.isPlayer ? 1.6 : s.radius > 20 ? 2 : 1.1, s.totalVel(V()));
-  audio.explosion(s.isPlayer ? 1 : Math.max(0.15, volAt(game, s.pos)), true);
+  audio.explosion(s.isPlayer ? 1 : Math.max(0.15, volAt(game, s.pos)), true, s.isPlayer ? 0 : panAt(game, s.pos));
   if (s.isPlayer) {
     s.obj.visible = false;
     game.onPlayerDestroyed(killer && killer.team === 'police' ? 'Authority patrol craft destroyed your fighter.' : 'Your fighter was torn apart in combat.');

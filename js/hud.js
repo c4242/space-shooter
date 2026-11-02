@@ -27,6 +27,8 @@ export class Hud {
     this.ctx = this.canvas.getContext('2d');
     this.messages = [];
     this.cracks = [];
+    this.hits = [];
+    try { this.altSeen = localStorage.getItem('sableRift.altSeen') === '1'; } catch { this.altSeen = false; }
     this.flash = 0;
     this.flashRGB = '255,40,30';
     this.viewH = innerHeight;
@@ -47,6 +49,7 @@ export class Hud {
 
   msg(text, color = '#9fe8ff') {
     this.messages.push({ text, color, t: performance.now() / 1000 });
+    if (this.g.cockpit) this.g.cockpit.comm(text, color);
     if (this.messages.length > 5) this.messages.shift();
   }
 
@@ -94,6 +97,7 @@ export class Hud {
       this.drawContacts(ctx);
       this.drawNav(ctx);
       this.drawTarget(ctx);
+      if (this.hits.length) this.drawHits(ctx, dt);
       this.drawVelocity(ctx);
       this.drawCrosshair(ctx);
       if (g.mouseFlight && !g.mouseFree && g.mouse.inside && g.state === 'flight') this.drawMouse(ctx);
@@ -224,6 +228,37 @@ export class Hud {
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(g.mouse.x, g.mouse.y); ctx.stroke();
     ctx.strokeStyle = `rgba(${C.hud},0.8)`;
     ctx.beginPath(); ctx.arc(g.mouse.x, g.mouse.y, 5, 0, Math.PI * 2); ctx.stroke();
+    if (!this.altSeen) {
+      // Until the player has used it once, remind them how to get the cursor back.
+      ctx.font = '11px "Share Tech Mono", monospace';
+      ctx.fillStyle = `rgba(${C.hud},${0.55 + 0.25 * Math.sin(performance.now() / 400)})`;
+      ctx.textAlign = 'left';
+      ctx.fillText('hold ALT: free cursor', g.mouse.x + 12, g.mouse.y + 4);
+      ctx.font = '13px "Share Tech Mono", monospace';
+    }
+  }
+
+  markAltSeen() {
+    if (this.altSeen) return;
+    this.altSeen = true;
+    try { localStorage.setItem('sableRift.altSeen', '1'); } catch { /* fine */ }
+  }
+
+  // Red (armour) or blue (shield) arcs around the crosshair pointing toward incoming fire.
+  drawHits(ctx, dt) {
+    const cx = this.W / 2, cy = this.viewH / 2, R = Math.min(this.W, this.viewH) * 0.17;
+    this.hits = this.hits.filter(h => (h.t += dt) < 1.3);
+    for (const h of this.hits) {
+      const k = 1 - h.t / 1.3;
+      const col = h.armor ? `rgba(255,70,50,${0.85 * k})` : `rgba(90,170,255,${0.7 * k})`;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 7 * (0.6 + 0.4 * k);
+      const r = R * (h.behind ? 1.12 : 1);
+      ctx.beginPath(); ctx.arc(cx, cy, r, h.a - 0.32, h.a + 0.32); ctx.stroke();
+      if (h.behind) {
+        ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r + 9, h.a - 0.22, h.a + 0.22); ctx.stroke();
+      }
+    }
   }
 
   drawContacts(ctx) {

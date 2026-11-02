@@ -12,7 +12,7 @@ import { LensFinishShader, FlareShader } from './shaders.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
-  hitShipWith, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
+  hitShipWith, panAt, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
 } from './ships.js';
 import { hasSave, loadSave, saveGame, changeRep, REP_WANTED, gateToward, stationNav } from './career.js';
 import { STORY, newStory, currentStep } from './story.js';
@@ -267,6 +267,7 @@ function startCareer(save) {
   } else {
     later(0.6, () => hud.msg('Meridian Highport Control: Launch clear. Fly safe, pilot.', COL.comm));
     later(4, () => hud.msg('Newtonian flight: you keep drifting. Hold C to brake, or burn at the retrograde marker.', COL.nav));
+    later(6.5, () => hud.msg('Tip: hold ALT to free the mouse cursor, then click a ship on screen to target it.', COL.nav));
     later(9, () => hud.msg('Press A for autopilot, M for the nav map. Dock with D for trade, contracts, upgrades and the STORY.', COL.comm));
     later(14, () => hud.msg('Dr. Varro at Meridian Highport has a job for you: dock and open the STORY tab.', COL.story));
   }
@@ -890,7 +891,7 @@ game.onRockHit = (rock, at, dmg, owner) => {
     game.fx.emit(rock.p, v, { life: 1.5 + Math.random() * 1.5, size: rock.r * 0.15, sizeEnd: rock.r * 0.5, color: [0.35, 0.3, 0.26], colorEnd: [0.05, 0.05, 0.05], alpha: 0.7, drag: 0.6 });
   }
   game.fx.sparks(rock.p, [3, 2, 1], 30);
-  audio.explosion(Math.max(0.2, 1 - camera.position.distanceTo(rock.p) / 5000) * 0.6, false);
+  audio.explosion(Math.max(0.2, 1 - camera.position.distanceTo(rock.p) / 5000) * 0.6, false, panAt(game, rock.p));
   const n = Math.max(1, Math.min(5, Math.round(rock.r / 40)));
   salvage.dropOre(rock.p, rock.r, belt.kind, n);
   hud.msg(`Asteroid cracked: ${n} chunk${n > 1 ? 's' : ''} of ${belt.kind === 'water' ? 'water ice' : 'raw ore'} released.`, COL.good);
@@ -936,7 +937,13 @@ function completeDeliveries(st) {
   }
 }
 
-game.onPlayerHit = r => {
+game.onPlayerHit = (r, dmg, fromPos) => {
+  if (fromPos) {
+    // Direction of the hit in the ship's frame, for the HUD damage arcs.
+    const d = V().subVectors(fromPos, game.player.pos).applyQuaternion(game.player.obj.quaternion.clone().invert());
+    hud.hits.push({ a: Math.atan2(-d.y, d.x), behind: d.z > 0, t: 0, armor: r.armor });
+    if (hud.hits.length > 8) hud.hits.shift();
+  }
   hud.flash = r.armor ? 0.5 : 0.22;
   hud.flashRGB = r.armor ? '255,60,30' : '60,140,255';
   game.shake = Math.max(game.shake, r.armor ? 1 : 0.4);
@@ -1511,7 +1518,7 @@ touch = initTouch(game, code => {
 const PREVENT = new Set(['AltLeft', 'AltRight', 'F2', 'Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Enter']);
 addEventListener('keydown', e => {
   if (PREVENT.has(e.code)) e.preventDefault();
-  if (e.code.startsWith('Alt')) game.mouseFree = true;
+  if (e.code.startsWith('Alt')) { game.mouseFree = true; hud.markAltSeen(); }
   audio.init();
   keys[e.code] = true;
   if (!e.repeat) onKey(e.code);

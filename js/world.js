@@ -610,10 +610,10 @@ function buildWorld(id) {
       q.setFromEuler(e.set(Math.random() * 6, Math.random() * 6, Math.random() * 6));
       m4.compose(p, q, sv.set(sz, sz * (0.7 + Math.random() * 0.5), sz));
       rocks.setMatrixAt(i, m4);
-      rockData.push({ p, r: sz * 1.05 });
+      rockData.push({ p, r: sz * 1.05, i, hp: sz * 1.2 });
     }
     root.add(rocks);
-    world.belt = { center: beltCenter, radius: 10000, extent: 11000, rocks: rockData };
+    world.belt = { center: beltCenter, radius: 10000, extent: 11000, rocks: rockData, mesh: rocks, kind: id === 'corvane' ? 'water' : 'ore' };
   }
 
   // Nav points

@@ -6,6 +6,9 @@ import { glowTex } from './ships.js';
 const POD_GEO = new THREE.BoxGeometry(3.2, 2.2, 4.2);
 const POD_MAT = new THREE.MeshStandardMaterial({ color: 0x9a8a60, metalness: 0.5, roughness: 0.5, emissive: 0x332200, envMapIntensity: 0.3 });
 const BAND_MAT = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2, 0.6) });
+const BAND_GEO = new THREE.BoxGeometry(3.4, 0.35, 4.4);
+const ORE_GEO = new THREE.DodecahedronGeometry(2.4, 0);
+const ORE_MAT = new THREE.MeshStandardMaterial({ color: 0x8a7a6a, roughness: 0.9, metalness: 0.2, emissive: 0x221100, flatShading: true });
 const LOOT = COMMODITIES.filter(c => !c.illegal);
 export const SCOOP_RANGE = 45;
 
@@ -19,18 +22,29 @@ export class Salvage {
       const w = LOOT.map(c => 1 / Math.sqrt(c.base));
       let r = Math.random() * w.reduce((a, b) => a + b, 0), cm = LOOT[0];
       for (let k = 0; k < LOOT.length; k++) { r -= w[k]; if (r <= 0) { cm = LOOT[k]; break; } }
+      this.spawn(ship.pos, ship.vel, ship.radius, cm, 1 + ((Math.random() * 3) | 0));
+    }
+  }
+
+  // Chunks of a mined asteroid.
+  dropOre(pos, radius, cmId, n) {
+    const cm = COMMODITIES.find(c => c.id === cmId);
+    for (let i = 0; i < n; i++) this.spawn(pos, new THREE.Vector3(), radius * 0.6, cm, 1 + ((Math.random() * 2) | 0), true);
+  }
+
+  spawn(at, baseVel, spread, cm, qty, ore = false) {
+    {
       const g = new THREE.Group();
-      g.add(new THREE.Mesh(POD_GEO, POD_MAT));
-      const band = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.35, 4.4), BAND_MAT);
-      g.add(band);
+      g.add(new THREE.Mesh(ore ? ORE_GEO : POD_GEO, ore ? ORE_MAT : POD_MAT));
+      if (!ore) g.add(new THREE.Mesh(BAND_GEO, BAND_MAT));
       const beacon = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(3, 2, 0.5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
       beacon.scale.setScalar(14);
       g.add(beacon);
-      g.position.copy(ship.pos).add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(ship.radius));
+      g.position.copy(at).add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(spread));
       this.g.scene.add(g);
       this.pods.push({
-        isPod: true, alive: true, obj: g, beacon, name: `Cargo pod: ${cm.name}`, cm, qty: 1 + ((Math.random() * 3) | 0),
-        radius: 4, vel: ship.vel.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(30)),
+        isPod: true, alive: true, obj: g, beacon, name: `${ore ? 'Ore chunk' : 'Cargo pod'}: ${cm.name}`, cm, qty,
+        radius: 4, vel: baseVel.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(30)),
         spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(0.8), life: 150,
         get pos() { return this.obj.position; },
       });

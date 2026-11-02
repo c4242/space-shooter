@@ -251,25 +251,51 @@ export const UPGRADES = {
   hold: { name: 'Cargo Hold', levels: ['25 units', '40 units', '55 units', '70 units'], costs: [1500, 4000, 9000] },
 };
 
-export function applyUpgrades(p, up) {
+// Player hulls, bought in the shipyard.
+export const HULLS = {
+  kestrel: { name: 'Kestrel', desc: 'Fast, agile courier-fighter. Two guns.', cost: 0, armorK: 1, shieldK: 1, thrustK: 1, turnK: 1, hold: 0, slots: 8, radius: 11 },
+  bastion: { name: 'Bastion', desc: 'Heavy fighter: four guns, thick armour, bigger hold and missile rack, but slower to turn and accelerate.', cost: 22000, armorK: 1.7, shieldK: 1.35, thrustK: 0.8, turnK: 0.82, hold: 20, slots: 12, radius: 14 },
+};
+
+// Subsystems: each 0..1. Damaged by armour hits, repaired at stations (and slowly in the field up to 50%).
+export const SYSTEMS_INFO = { guns: 'GUNS', engine: 'ENGINE', shields: 'SHIELD GEN', sensors: 'SENSORS' };
+
+export function applyUpgrades(p, up, hullId = 'kestrel') {
+  const H = HULLS[hullId];
   const armorFrac = p.armorMax ? p.armor / p.armorMax : 1;
+  p.hull = hullId;
   p.gunDmg = 6 + 1.6 * up.guns;
-  p.fireRate = 0.13 - 0.01 * up.guns;
   p.gunName = UPGRADES.guns.levels[up.guns];
-  p.shieldMax = 120 + 40 * up.shields;
-  p.shieldRegen = 9 + 3 * up.shields;
-  p.armorMax = 160 + 60 * up.armor;
+  p.shieldMax = Math.round((120 + 40 * up.shields) * H.shieldK);
+  p.armorMax = Math.round((160 + 60 * up.armor) * H.armorK);
   p.armor = p.armorMax * armorFrac;
+  p.radius = H.radius;
+  p.missileSlots = H.slots;
   // Newtonian drive: accelerations in m/s².
-  p.thrust = 110 + 14 * up.engine;
-  p.abThrust = 230 + 30 * up.engine;
-  p.rcs = 34 + 5 * up.engine;
-  const k = 1 + 0.08 * up.engine;
-  p.turnRates = [1.35 * k, 1.1 * k, 2.3 * k];
+  const k = (1 + 0.08 * up.engine) * H.turnK;
+  p.base = {
+    fireRate: 0.13 - 0.01 * up.guns, shieldRegen: 9 + 3 * up.shields,
+    thrust: (110 + 14 * up.engine) * H.thrustK, abThrust: (230 + 30 * up.engine) * H.thrustK, rcs: (34 + 5 * up.engine) * H.thrustK,
+    turnRates: [1.35 * k, 1.1 * k, 2.3 * k],
+  };
   p.shieldF = Math.min(p.shieldF ?? p.shieldMax, p.shieldMax);
   p.shieldR = Math.min(p.shieldR ?? p.shieldMax, p.shieldMax);
+  applySystems(p);
 }
-export const holdFor = up => 25 + 15 * up.hold;
+
+// Turn subsystem health into live performance numbers.
+export function applySystems(p) {
+  const S = p.sys || (p.sys = { guns: 1, engine: 1, shields: 1, sensors: 1 });
+  const B = p.base;
+  p.fireRate = B.fireRate / (0.35 + 0.65 * S.guns);
+  p.shieldRegen = B.shieldRegen * S.shields;
+  const e = 0.35 + 0.65 * S.engine;
+  p.thrust = B.thrust * e; p.abThrust = B.abThrust * e; p.rcs = B.rcs * (0.5 + 0.5 * S.engine);
+  p.turnRates = B.turnRates.map(r => r * (0.55 + 0.45 * S.engine));
+}
+
+export const holdFor = (up, hullId = 'kestrel') => 25 + 15 * up.hold + HULLS[hullId].hold;
+
 
 // ---------------------------------------------------------------------------
 // Missiles
@@ -282,7 +308,7 @@ export const MISSILES = {
 };
 export const MISSILE_SLOTS = 8;
 export const missileSlotsUsed = p => Object.entries(p.ammo).reduce((a, [k, n]) => a + n * MISSILES[k].slots, 0);
-export const lockTimeFor = p => (p.isPlayer ? MISSILES[p.missileType].lock : MISSILES.seeker.lock);
+export const lockTimeFor = p => (p.isPlayer ? MISSILES[p.missileType].lock * (p.sys && p.sys.sensors < 0.5 ? 2 : 1) : MISSILES.seeker.lock);
 
 // ---------------------------------------------------------------------------
 // Extra models
@@ -303,6 +329,28 @@ export function buildWarlordModel() {
   return { group: outer, glows: m.glows, gunPorts: m.gunPorts.map(v => v.clone().multiplyScalar(1.4)), exhaust: m.exhaust.clone().multiplyScalar(1.4), engineColor: m.engineColor };
 }
 
+export function buildBastionModel() {
+  const m = buildPlayerModel(0x7c8574, 0xd08a20);
+  const outer = new THREE.Group();
+  m.group.scale.setScalar(1.25);
+  outer.add(m.group);
+  const hull = mat(0x6d7566), dark = mat(0x2b3038, { roughness: 0.65 });
+  for (const sx of [-1, 1]) {
+    part(outer, new THREE.BoxGeometry(2.4, 2, 9), hull, [sx * 3.6, -1.1, 2]);           // side cargo pods
+    part(outer, new THREE.CylinderGeometry(0.35, 0.35, 6, 8), dark, [sx * 5.6, -0.9, -3], [Math.PI / 2, 0, 0]); // inner guns
+    part(outer, new THREE.BoxGeometry(0.5, 2.4, 3.2), hull, [sx * 5.6, -0.2, 0.5]);
+  }
+  part(outer, new THREE.BoxGeometry(3.4, 0.8, 5), hull, [0, 1.6, 1.5]);
+  const gp = m.gunPorts.map(v => v.clone().multiplyScalar(1.25));
+  gp.push(new THREE.Vector3(-5.6, -0.9, -6), new THREE.Vector3(5.6, -0.9, -6));
+  return { group: outer, glows: m.glows, gunPorts: gp, exhaust: m.exhaust.clone().multiplyScalar(1.25), engineColor: m.engineColor };
+}
+export function buildWingmanModel() {
+  const m = buildPlayerModel(0x58705c, 0x40d070);
+  m.engineColor = [0.6, 2.6, 1.2];
+  return m;
+}
+
 // ---------------------------------------------------------------------------
 // Ship
 // ---------------------------------------------------------------------------
@@ -313,14 +361,16 @@ const PATROLS = ['Lance', 'Warden', 'Aegis', 'Bastion', 'Sentry', 'Vigil'];
 const pick = a => a[(Math.random() * a.length) | 0];
 const BUILDERS = {
   player: () => buildPlayerModel(), pirate: buildPirateModel, marauder: buildMarauderModel, warlord: buildWarlordModel,
-  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel,
+  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel, wingman: buildWingmanModel,
 };
+const HULL_MODELS = { kestrel: () => buildPlayerModel(), bastion: buildBastionModel };
 const STATS = {
   pirate: () => ({ name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER', team: 'pirate', thrust: 105, abThrust: 180, rcs: 45, cruise: 380, radius: 10, shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5, missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25, bounty: 250 + ((Math.random() * 6) | 0) * 25 }),
   marauder: () => ({ name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER', team: 'pirate', thrust: 75, abThrust: 130, rcs: 32, cruise: 320, radius: 16, shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4, missiles: 2, turn: 0.8 + Math.random() * 0.15, bounty: 650 + ((Math.random() * 6) | 0) * 25 }),
   warlord: () => ({ name: "Krell's Talon", cls: 'ASHFANG WARLORD', team: 'pirate', thrust: 70, abThrust: 120, rcs: 30, cruise: 300, radius: 24, shieldMax: 260, armorMax: 520, gunDmg: 9, fireRate: 0.16, shotCost: 3, missiles: 6, turn: 0.7, bounty: 5000 }),
   smuggler: () => ({ name: 'Ashfang Hauler', cls: 'ASHFANG HAULER', team: 'pirate', thrust: 30, abThrust: 25, rcs: 12, cruise: 200, radius: 34, shieldMax: 60, armorMax: 220, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, bounty: 800, hauler: true }),
   freighter: () => ({ name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER', team: 'civ', thrust: 28, abThrust: 22, rcs: 12, cruise: 190, radius: 34, shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, hauler: true }),
+  wingman: () => ({ name: 'Wing', cls: 'WINGMAN', team: 'player', wing: true, thrust: 125, abThrust: 220, rcs: 55, cruise: 450, radius: 11, shieldMax: 100, armorMax: 130, gunDmg: 6, fireRate: 0.18, shotCost: 4, missiles: 2, turn: 1.3 }),
   police: () => ({ name: `Patrol ${pick(PATROLS)}-${1 + ((Math.random() * 9) | 0)}`, cls: 'AUTHORITY PATROL', team: 'police', thrust: 120, abThrust: 200, rcs: 50, cruise: 420, radius: 11, shieldMax: 110, armorMax: 120, gunDmg: 6, fireRate: 0.2, shotCost: 4, missiles: 1, turn: 1.25 }),
 };
 
@@ -328,7 +378,7 @@ export class Ship {
   constructor(game, kind) {
     this.kind = kind;
     this.isPlayer = kind === 'player';
-    const m = BUILDERS[kind]();
+    const m = this.isPlayer ? HULL_MODELS[game.hull || 'kestrel']() : BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
     this.exhaust = m.exhaust; this.engineColor = m.engineColor; this.lightbar = m.lightbar || null;
     // One plume per engine glow, sized from the glow (positions are in the glow's parent space).
@@ -342,7 +392,7 @@ export class Ship {
         name: 'You', team: 'player', radius: 11, shotCost: 4.5, decoys: 8, maxDecoys: 10, abFuel: 100,
         ammo: { dart: 2, seeker: 4, torpedo: 0 }, missileType: 'seeker',
       });
-      applyUpgrades(this, game.upgrades);
+      applyUpgrades(this, game.upgrades, game.hull || 'kestrel');
       this.armor = this.armorMax;
     } else {
       Object.assign(this, STATS[kind](), { aiState: 'attack', aiTimer: 0, evadeDir: V(), aiTarget: null });
@@ -359,6 +409,7 @@ export class Ship {
 export function hostileTo(game, a, b) {
   if (!b || !b.alive || a === b) return false;
   if (a.team === 'pirate') return b.team === 'player' || b.team === 'civ' || b.team === 'police';
+  if (a.team === 'player') return b.team === 'pirate' || (b.team === 'police' && game.isWanted());
   if (a.team === 'police') return b.team === 'pirate' || (b.team === 'player' && (game.isWanted() || a.angryUntil > game.time));
   return false;
 }
@@ -441,7 +492,7 @@ export function updateLasers(game, dt) {
     }
     if (!dead && belt && p1.distanceToSquared(belt.center) < belt.extent * belt.extent) {
       for (const r of belt.rocks) {
-        if (segSphere(p0, p1, r.p, r.r)) { game.fx.sparks(p1, [2.5, 1.6, 0.8], 6); dead = true; break; }
+        if (segSphere(p0, p1, r.p, r.r)) { game.fx.sparks(p1, [2.5, 1.6, 0.8], 6); if (game.onRockHit) game.onRockHit(r, p1, L.dmg, L.owner); dead = true; break; }
       }
     }
     if (dead) { game.scene.remove(L.mesh); game.lasers.splice(i, 1); }
@@ -586,7 +637,17 @@ export function hitShipWith(game, s, dmg, fromPos, src, big = false) {
   const at = _e.copy(fromPos).sub(s.pos).setLength(s.radius * 0.8).add(s.pos);
   game.fx.sparks(at, r.armor ? [4, 2, 0.6] : [0.8, 1.8, 4], big ? 40 : 12);
   if (r.shield && game.bubbles && !(s.isPlayer && game.view === 'cockpit')) game.bubbles.add(s, at);
-  if (s.isPlayer) game.onPlayerHit(r, dmg);
+  if (s.isPlayer) {
+    game.onPlayerHit(r, dmg);
+    if (r.armor && Math.random() < Math.min(0.6, dmg / 35)) {
+      const keys = Object.keys(SYSTEMS_INFO);
+      const k = keys[(Math.random() * keys.length) | 0];
+      const before = s.sys[k];
+      s.sys[k] = Math.max(0, s.sys[k] - (0.12 + dmg / 70));
+      applySystems(s);
+      if (game.onSystemDamage && before - s.sys[k] > 0.05) game.onSystemDamage(k, s.sys[k]);
+    }
+  }
   else {
     s.recentHits += 1;
     if (src && src.isPlayer) audio.hitConfirm();
@@ -654,6 +715,7 @@ export function updateAI(s, game, dt) {
     let best = null, bd = s.team === 'police' ? 14000 : 9000;
     for (const o of game.ships) {
       if (!hostileTo(game, s, o)) continue;
+      if (s.wing && game.player && o.pos.distanceTo(game.player.pos) > 6000) continue;
       const d = o.pos.distanceTo(s.pos) * (o.isPlayer && s.team === 'pirate' ? 0.7 : 1);
       if (d < bd) { bd = d; best = o; }
     }
@@ -669,6 +731,19 @@ export function updateAI(s, game, dt) {
   }
 
   const p = s.aiTarget;
+  const leader = game.player;
+  if (s.wing && leader && leader.alive && (!p || pos.distanceTo(leader.pos) > 7000)) {
+    // Formation: hold station off the leader's left wing, matching velocity.
+    s.aiTarget = null;
+    const slot = V().set(-45, 10, 35).applyQuaternion(leader.obj.quaternion).add(leader.pos);
+    const off = slot.sub(pos);
+    const d = off.length();
+    const vd = leader.vel.clone().addScaledVector(off, Math.min(0.8, s.cruise / Math.max(d, 1)));
+    steer(s, vd, dt, d < 300 ? forwardOf(leader.obj, V()) : null);
+    s.rcsCmd.copy(vd).sub(s.vel).multiplyScalar(3);
+    s.lockTime = 0;
+    return;
+  }
   if (!p || game.state === 'docking') {
     // Patrol: police wander around their home point, pirates loiter.
     s.home = s.home || pos.clone();

@@ -12,7 +12,7 @@ import { LensFinishShader, FlareShader } from './shaders.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
-  hitShipWith, lockTimeFor, heatTarget, applyUpgrades, holdFor, MISSILES,
+  hitShipWith, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
 } from './ships.js';
 import { hasSave, loadSave, saveGame, changeRep, REP_WANTED, gateToward, stationNav } from './career.js';
 import { STORY, newStory, currentStep } from './story.js';
@@ -78,6 +78,7 @@ const game = {
   state: 'menu', view: 'cockpit', time: 0,
   credits: 0, cargo: {}, cargoCap: 25, kills: 0, rep: { authority: 0, ashfang: 0 },
   upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 }, missions: [], missionSeq: 0, trafficT: 8, policeT: 20,
+  hull: 'kestrel', wing: null,
   story: newStory(),
   invertPitch: false, mouseFlight: true, touchMode: false, flightAssist: false, matching: false,
   mouse: { x: innerWidth / 2, y: innerHeight / 2, inside: false, left: false },
@@ -97,9 +98,48 @@ const ui = game.ui = new UI(game);
 const cockpit = game.cockpit = new Cockpit(game);
 
 game.applyUpgrades = () => {
-  applyUpgrades(game.player, game.upgrades);
-  game.cargoCap = holdFor(game.upgrades);
+  applyUpgrades(game.player, game.upgrades, game.hull);
+  game.cargoCap = holdFor(game.upgrades, game.hull);
 };
+
+// Swap the player's hull (shipyard). The new ship keeps cargo, ammo and position.
+game.changeHull = id => {
+  const old = game.player;
+  game.hull = id;
+  const p = new Ship(game, 'player');
+  p.ammo = old.ammo; p.missileType = old.missileType; p.decoys = old.decoys; p.abFuel = old.abFuel;
+  p.pos.copy(old.pos); p.obj.quaternion.copy(old.obj.quaternion);
+  p.obj.visible = old.obj.visible;
+  scene.remove(old.obj);
+  game.ships = game.ships.map(s => (s === old ? p : s));
+  game.player = p;
+  game.cargoCap = holdFor(game.upgrades, game.hull);
+};
+
+const WING_NAMES = ['Nova', 'Kite', 'Harrow', 'Juno', 'Rook', 'Sabre', 'Tamsin', 'Vale'];
+game.hireWing = () => {
+  game.wing = { name: WING_NAMES[(Math.random() * WING_NAMES.length) | 0], armorFrac: 1, kills: 0 };
+};
+function spawnWing() {
+  if (!game.wing || game.ships.some(s => s.wing && s.alive)) return;
+  const p = game.player;
+  const w = new Ship(game, 'wingman');
+  w.name = `Wing: ${game.wing.name}`;
+  w.armor = w.armorMax * game.wing.armorFrac;
+  w.pos.copy(p.pos).add(V(-45, 10, 35).applyQuaternion(p.obj.quaternion));
+  w.obj.quaternion.copy(p.obj.quaternion);
+  w.vel.copy(p.vel);
+  game.ships.push(w);
+}
+function regroupWing() {
+  const w = game.ships.find(s => s.wing && s.alive);
+  const p = game.player;
+  if (!w) return;
+  w.pos.copy(p.pos).add(V(-45, 10, 35).applyQuaternion(p.obj.quaternion));
+  w.obj.quaternion.copy(p.obj.quaternion);
+  w.vel.copy(p.vel);
+  w.aiTarget = null;
+}
 game.cargoUsed = () => Object.values(game.cargo).reduce((a, c) => a + c.qty, 0);
 game.isWanted = () => game.rep.authority <= REP_WANTED;
 game.storyStep = () => currentStep(game.story);
@@ -159,17 +199,19 @@ function forgetShip(s) {
   if (s.storyTag) storyLost();
 }
 
-function clearCombat() {
-  for (const s of game.ships) if (!s.isPlayer) forgetShip(s);
+function clearCombat(keepWing = false) {
+  const wing = game.ships.find(s => s.wing && s.alive);
+  if (wing && game.wing) game.wing.armorFrac = wing.armor / wing.armorMax;
+  for (const s of game.ships) if (!s.isPlayer && !(keepWing && s.wing)) forgetShip(s);
   for (const L of game.lasers) scene.remove(L.mesh);
   for (const m of game.missiles) scene.remove(m.mesh);
-  game.ships = game.ships.filter(s => s.isPlayer);
+  game.ships = game.ships.filter(s => s.isPlayer || (keepWing && s.wing));
   game.lasers = []; game.missiles = []; game.decoys = [];
   salvage.clear();
 }
 
 function setSystem(id) {
-  clearCombat();
+  clearCombat(true);
   game.sys = id;
   game.world = getWorld(scene, id);
   game.navs = game.world.navs;
@@ -184,14 +226,14 @@ function startCareer(save) {
   if (game.player) scene.remove(game.player.obj);
   Object.assign(game, {
     credits: 1500, cargo: {}, kills: 0, target: null, time: 0, view: 'cockpit', navIndex: 1, timers: [],
-    deathShown: false, shake: 0, missions: [], missionSeq: 0, rep: { authority: 0, ashfang: 0 }, story: newStory(),
+    deathShown: false, shake: 0, missions: [], missionSeq: 0, rep: { authority: 0, ashfang: 0 }, story: newStory(), hull: 'kestrel', wing: null,
     upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 },
   });
   if (save) {
     Object.assign(game, {
       credits: save.credits, cargo: save.cargo || {}, kills: save.kills || 0,
       missions: save.missions || [], missionSeq: save.missionSeq || 0, upgrades: { ...game.upgrades, ...save.upgrades },
-      rep: { ...game.rep, ...save.rep }, story: { ...newStory(), ...save.story },
+      rep: { ...game.rep, ...save.rep }, story: { ...newStory(), ...save.story }, hull: save.hull || 'kestrel', wing: save.wing || null,
     });
     for (const m of game.missions) if (m.type === 'bounty') m.spawned = false;
     game.story.spawned = false;
@@ -201,15 +243,17 @@ function startCareer(save) {
   const p = new Ship(game, 'player');
   game.player = p;
   game.ships = [p];
-  game.cargoCap = holdFor(game.upgrades);
+  game.cargoCap = holdFor(game.upgrades, game.hull);
   if (save) {
     p.ammo = { ...p.ammo, ...save.ammo }; p.missileType = save.missileType || 'seeker';
     p.decoys = save.decoys; p.abFuel = save.abFuel;
     p.armor = p.armorMax * (save.armorFrac ?? 1);
+    if (save.sysHealth) { p.sys = { ...p.sys, ...save.sysHealth }; applySystems(p); }
   }
   const st = game.world.stations[save ? save.station : 0] || game.world.stations[0];
   placeAtStation(st);
   p.obj.visible = false;
+  spawnWing();
   game.state = 'flight';
   game.fade = 1;
   ui.hideMenu();
@@ -268,6 +312,7 @@ game.launchFromStation = st => {
   ui.notice = null;
   placeAtStation(st);
   saveAt(st);
+  spawnWing();
   game.state = 'flight';
   game.fade = 1;
   autoRoute();
@@ -500,6 +545,7 @@ function updateJump(dt) {
     p.vel.copy(dir).multiplyScalar(120);
     game.navIndex = game.navs.indexOf(arrive);
     autoRoute();
+    regroupWing();
   }
   if (J.t >= 2.6) {
     camera.fov = 72; updateProjection();
@@ -576,10 +622,11 @@ function finishAutopilot() {
   p.throttle = 0;
   p.afterburner = false;
   for (const s of game.ships) {
-    if (s.isPlayer || !s.alive || s.pos.distanceTo(p.pos) <= 25000) continue;
+    if (s.isPlayer || s.wing || !s.alive || s.pos.distanceTo(p.pos) <= 25000) continue;
     s.alive = false;
     forgetShip(s);
   }
+  regroupWing();
   for (const L of game.lasers) scene.remove(L.mesh);
   for (const m of game.missiles) scene.remove(m.mesh);
   game.lasers = []; game.missiles = []; game.decoys = [];
@@ -724,6 +771,16 @@ function updateTraffic(dt) {
 
 game.onShipDestroyed = (s, killer) => {
   if (game.target === s) game.target = null;
+  if (s.wing) {
+    hud.msg(`${s.name}: I'm hit, I'm going down! ... Wingman lost.`, COL.hostile);
+    game.wing = null;
+    return;
+  }
+  if (killer && killer.wing && s.team === 'pirate') {
+    game.credits += Math.round(s.bounty * 0.5);
+    if (game.wing) game.wing.kills++;
+    hud.msg(`${killer.name}: Splash one! (half bounty +${Math.round(s.bounty * 0.5)} cr)`, COL.good);
+  }
   if (s.team !== 'police') salvage.drop(s);
   const byPlayer = killer && killer.isPlayer;
   if (s.team === 'civ') {
@@ -760,6 +817,33 @@ game.onShipDestroyed = (s, killer) => {
       } else hud.msg(`Contract: ${m.killed}/${m.count} raiders destroyed.`, COL.nav);
     }
   }
+};
+
+game.onRockHit = (rock, at, dmg, owner) => {
+  if (!owner || (!owner.isPlayer && !owner.wing)) return;
+  const belt = game.world.belt;
+  rock.hp -= dmg;
+  if (rock.hp > 0) return;
+  // Break the asteroid apart: hide the instance, throw out dust and ore.
+  const m4 = new THREE.Matrix4().makeScale(0, 0, 0);
+  belt.mesh.setMatrixAt(rock.i, m4);
+  belt.mesh.instanceMatrix.needsUpdate = true;
+  belt.rocks.splice(belt.rocks.indexOf(rock), 1);
+  const s = Math.min(2.5, rock.r / 60);
+  for (let i = 0; i < 40 * s; i++) {
+    const v = V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(20 + Math.random() * 90 * s);
+    game.fx.emit(rock.p, v, { life: 1.5 + Math.random() * 1.5, size: rock.r * 0.15, sizeEnd: rock.r * 0.5, color: [0.35, 0.3, 0.26], colorEnd: [0.05, 0.05, 0.05], alpha: 0.7, drag: 0.6 });
+  }
+  game.fx.sparks(rock.p, [3, 2, 1], 30);
+  audio.explosion(Math.max(0.2, 1 - camera.position.distanceTo(rock.p) / 5000) * 0.6, false);
+  const n = Math.max(1, Math.min(5, Math.round(rock.r / 40)));
+  salvage.dropOre(rock.p, rock.r, belt.kind, n);
+  hud.msg(`Asteroid cracked: ${n} chunk${n > 1 ? 's' : ''} of ${belt.kind === 'water' ? 'water ice' : 'raw ore'} released.`, COL.good);
+};
+
+game.onSystemDamage = (k, v) => {
+  hud.msg(`DAMAGE: ${SYSTEMS_INFO[k]} at ${Math.round(v * 100)}%`, COL.hostile);
+  audio.alarm();
 };
 
 game.onNpcHit = (s, src) => {
@@ -961,6 +1045,10 @@ function playerControl(dt) {
 
 function playerSystems(dt) {
   const p = game.player;
+  // Damage-control crews patch systems slowly, but only up to 50% in the field.
+  let changed = false;
+  for (const k in p.sys) if (p.sys[k] < 0.5) { p.sys[k] = Math.min(0.5, p.sys[k] + 0.012 * dt); changed = true; }
+  if (changed) applySystems(p);
   if (game.time - p.lastHit > 2.5) {
     p.shieldF = Math.min(p.shieldMax, p.shieldF + p.shieldRegen * dt);
     p.shieldR = Math.min(p.shieldMax, p.shieldR + p.shieldRegen * dt);
@@ -1062,7 +1150,7 @@ function updateFlight(dt) {
     storyUpdate();
   }
   // Ships that wander far away are dropped.
-  for (const s of game.ships) if (!s.isPlayer && s.alive && s.pos.distanceTo(p.pos) > 60000) { s.alive = false; forgetShip(s); }
+  for (const s of game.ships) if (!s.isPlayer && !s.wing && s.alive && s.pos.distanceTo(p.pos) > 60000) { s.alive = false; forgetShip(s); }
   game.ships = game.ships.filter(s => s.alive || s.isPlayer);
   for (let i = game.timers.length - 1; i >= 0; i--) {
     const tm = game.timers[i];

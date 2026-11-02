@@ -175,7 +175,7 @@ export class Hud {
       if (s.pos.distanceTo(p.pos) > 15000) continue;
       const pr = this.project(s.pos);
       if (!pr.on) continue;
-      ctx.strokeStyle = s.team === 'civ' ? C.yellow : s.team === 'police' ? '#6ab0ff' : C.red; ctx.lineWidth = 1.3;
+      ctx.strokeStyle = s.team === 'civ' ? C.yellow : s.team === 'police' ? '#6ab0ff' : s.team === 'player' ? C.green : C.red; ctx.lineWidth = 1.3;
       const k = 7;
       ctx.beginPath();
       ctx.moveTo(pr.x - k, pr.y - k + 3); ctx.lineTo(pr.x - k, pr.y - k); ctx.lineTo(pr.x - k + 3, pr.y - k);

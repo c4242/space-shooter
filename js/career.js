@@ -23,6 +23,7 @@ export function saveGame(game, stationIndex) {
     upgrades: game.upgrades, missions: game.missions, missionSeq: game.missionSeq, navIndex: game.navIndex,
     story: game.story, ammo: p.ammo, missileType: p.missileType, decoys: p.decoys,
     armorFrac: p.armor / p.armorMax, abFuel: p.abFuel,
+    hull: game.hull, wing: game.wing, sysHealth: p.sys,
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch { /* storage unavailable: play without saving */ }
 }

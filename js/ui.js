@@ -1,5 +1,5 @@
 import { COMMODITIES, SYSTEMS } from './world.js';
-import { forwardOf, UPGRADES, MISSILES, MISSILE_SLOTS, missileSlotsUsed } from './ships.js';
+import { forwardOf, UPGRADES, MISSILES, missileSlotsUsed, HULLS, SYSTEMS_INFO, applySystems } from './ships.js';
 import { generateOffers, missionSummary, hasSave, repLabel } from './career.js';
 import { STORY } from './story.js';
 import { fmtDist } from './hud.js';
@@ -376,28 +376,44 @@ export class UI {
         <td class="num">${max ? '' : cost.toLocaleString() + ' cr'}</td>
         <td>${max ? '' : `<button data-a="upgrade" data-id="${id}" ${g.credits >= cost ? '' : 'disabled'}>INSTALL</button>`}</td></tr>`;
     }
-    return `<div class="sub">Better guns hit harder and faster, shields soak more and recharge faster, the engine adds speed and agility, and a bigger hold means bigger trade runs.</div><table>${rows}</table>`;
+    let hulls = '';
+    for (const [id, H] of Object.entries(HULLS)) {
+      const own = g.hull === id;
+      const tradeIn = Math.round(HULLS[g.hull].cost * 0.6);
+      const price = H.cost - tradeIn; // negative = you get money back
+      const cargoOk = g.cargoUsed() <= 25 + 15 * g.upgrades.hold + H.hold;
+      hulls += `<tr><td><b>${H.name}</b><br><span class="dim">${H.desc}</span></td>
+        <td class="num">${own ? '<span class="good">FLYING</span>' : price < 0 ? `<span class="good">+${(-price).toLocaleString()} cr</span>` : price.toLocaleString() + ' cr'}</td>
+        <td>${own ? '' : `<button data-a="hull" data-id="${id}" ${g.credits >= price && cargoOk ? '' : 'disabled'}>${price < 0 ? 'SWITCH' : 'BUY'}</button>`}</td></tr>`;
+    }
+    return `<h3>HULLS</h3><div class="sub">Upgrades carry over to a new hull. Your current hull is traded in at 60% of its price.</div><table>${hulls}</table>
+      <h3>UPGRADES</h3><div class="sub">Better guns hit harder and faster, shields soak more and recharge faster, the engine adds speed and agility, and a bigger hold means bigger trade runs.</div><table>${rows}</table>`;
   }
 
   servicesHTML() {
     const g = this.g, p = g.player;
     const repairCost = Math.ceil((p.armorMax - p.armor) * 4);
+    const sysDmg = Object.values(p.sys).reduce((a, v) => a + (1 - v), 0);
+    const sysCost = Math.ceil(sysDmg * 900);
+    const sysText = Object.entries(p.sys).map(([k, v]) => `${SYSTEMS_INFO[k]} ${Math.round(v * 100)}%`).join(', ');
     const fuelCost = Math.ceil((100 - p.abFuel) * 2);
     const svc = [
       ['repair', `Repair armor (${Math.round(p.armor)}/${p.armorMax})`, repairCost, p.armor < p.armorMax - 0.5],
+      ['systems', `Repair ship systems (${sysText})`, sysCost, sysDmg > 0.005],
+      ['wing', g.wing ? `Wingman ${g.wing.name} (${g.wing.kills} kills) is flying with you. Fees: half of each bounty they earn.` : 'Hire a wingman: flies in formation, fights pirates, takes half the bounties they earn', g.wing ? 0 : 2500, !g.wing],
       ['fuel', `Refuel afterburner (${Math.round(p.abFuel)}%)`, fuelCost, p.abFuel < 99.5],
       ['decoy', `Decoy (${p.decoys}/${p.maxDecoys})`, 40, p.decoys < p.maxDecoys],
     ];
-    const free = MISSILE_SLOTS - missileSlotsUsed(p);
+    const free = p.missileSlots - missileSlotsUsed(p);
     for (const [k, M] of Object.entries(MISSILES)) {
       if (k === 'torpedo' && !g.world.stations.some(x => x === this.station && (x.hq || x.outpost))) continue;
       svc.push(['msl:' + k, `${M.name} (${M.label}, ${M.dmg} dmg, ${M.lock ? M.lock + ' s lock' : 'no lock'}, ${M.slots} slot${M.slots > 1 ? 's' : ''}) · have ${p.ammo[k]}`, M.cost, free >= M.slots]);
     }
     let rows = '';
     for (const [id, lbl, cost, avail] of svc) {
-      rows += `<tr><td>${lbl}</td><td class="num">${avail ? cost + ' cr' : '—'}</td><td><button data-a="svc" data-id="${id}" ${avail && g.credits >= cost && cost > 0 ? '' : 'disabled'}>${id === 'repair' || id === 'fuel' ? 'SERVICE' : 'BUY'}</button></td></tr>`;
+      rows += `<tr><td>${lbl}</td><td class="num">${avail ? cost + ' cr' : '—'}</td><td><button data-a="svc" data-id="${id}" ${avail && g.credits >= cost && cost > 0 ? '' : 'disabled'}>${id === 'repair' || id === 'fuel' || id === 'systems' ? 'SERVICE' : id === 'wing' ? 'HIRE' : 'BUY'}</button></td></tr>`;
     }
-    return `<div class="sub">Missile rack: ${missileSlotsUsed(p)}/${MISSILE_SLOTS} slots used. Torpedoes are only sold at Corvane Shipyards and Gallows Rock.</div><table>${rows}</table>`;
+    return `<div class="sub">Missile rack: ${missileSlotsUsed(p)}/${p.missileSlots} slots used. Torpedoes are only sold at Corvane Shipyards and Gallows Rock.</div><table>${rows}</table>`;
   }
 
   storyHTML() {
@@ -440,10 +456,18 @@ export class UI {
       audio.cash();
     } else if (a === 'svc') {
       if (id === 'repair') { g.credits -= Math.ceil((p.armorMax - p.armor) * 4); p.armor = p.armorMax; }
+      if (id === 'systems') { g.credits -= Math.ceil(Object.values(p.sys).reduce((a, v) => a + (1 - v), 0) * 900); for (const k in p.sys) p.sys[k] = 1; applySystems(p); }
+      if (id === 'wing') { g.credits -= 2500; g.hireWing(); }
       if (id === 'fuel') { g.credits -= Math.ceil((100 - p.abFuel) * 2); p.abFuel = 100; }
       if (id.startsWith('msl:')) { const k = id.slice(4); g.credits -= MISSILES[k].cost; p.ammo[k]++; }
       if (id === 'decoy') { g.credits -= 40; p.decoys++; }
       audio.cash();
+    } else if (a === 'hull') {
+      const H = HULLS[id], price = H.cost - Math.round(HULLS[g.hull].cost * 0.6);
+      if (g.credits < price) { audio.denied(); return; }
+      g.credits -= price;
+      g.changeHull(id);
+      audio.chime();
     } else if (a === 'upgrade') {
       const u = UPGRADES[id], lvl = g.upgrades[id], cost = u.costs[lvl];
       if (cost === undefined || g.credits < cost) { audio.denied(); return; }

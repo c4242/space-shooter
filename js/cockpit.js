@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, buildPoliceModel, buildWarlordModel, lockTimeFor, MISSILES, heatTarget } from './ships.js';
+import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, buildPoliceModel, buildWarlordModel, buildBastionModel, buildWingmanModel, lockTimeFor, MISSILES, heatTarget } from './ships.js';
 import { STORY } from './story.js';
 import { missionSummary } from './career.js';
 import { makeStation } from './world.js';
@@ -91,6 +91,8 @@ export class Cockpit {
     const green = new THREE.Color(0.45, 1.0, 0.5);
     this.models = {
       player: wire(buildPlayerModel().group, green),
+      bastion: wire(buildBastionModel().group, green),
+      wingman: wire(buildWingmanModel().group, new THREE.Color(0.5, 1.0, 0.6)),
       pirate: wire(buildPirateModel().group, green),
       marauder: wire(buildMarauderModel().group, green),
       freighter: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.9, 0.45)),
@@ -391,6 +393,7 @@ export class Cockpit {
       v.subVectors(pos, p.pos).applyQuaternion(this._q);
       const len = v.length();
       if (len < 1) return;
+      if (p.sys && p.sys.sensors < 0.5 && Math.random() < (0.5 - p.sys.sensors) * 1.6) return; // damaged sensors drop contacts
       const ang = Math.acos(THREE.MathUtils.clamp(-v.z / len, -1, 1));
       const rr = ang / Math.PI * (R - 4), a = Math.atan2(v.y, v.x);
       const x = r.cx + Math.cos(a) * rr, y = r.cy - Math.sin(a) * rr;
@@ -406,7 +409,7 @@ export class Cockpit {
     for (const st of g.world.stations) if (st.pos.distanceTo(p.pos) < 120000) plot(st.pos, '#9dffb0', s, 'sq', st === g.target);
     const nav = g.navs[g.navIndex];
     if (nav) plot(nav.pos, '#7fd8ff', s * 1.3, 'dia');
-    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : sh.team === 'police' ? '#6ab0ff' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
+    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : sh.team === 'police' ? '#6ab0ff' : sh.team === 'player' ? '#7dffb0' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
     for (const pod of g.salvage.pods) if (pod.pos.distanceTo(p.pos) < 8000) plot(pod.pos, '#ffc85a', s * 0.9, 'dia', pod === g.target);
     for (const m of g.missiles) if (m.mesh.position.distanceTo(p.pos) < 8000) plot(m.mesh.position, '#ffe066', s * 0.8, 'circle');
     c.restore();
@@ -486,6 +489,18 @@ export class Cockpit {
     else if (job) label(c, `Job: ${missionSummary(g, job)}`, s.x + 10 * u, s.y + s.h - 24 * u, fs * 0.85, '#ffd36b', 'left');
     label(c, `Missile: ${MISSILES[p.missileType].name} x${p.ammo[p.missileType]}  (G)`, s.x + 10 * u, s.y + 43 * u, fs * 0.92, p.ammo[p.missileType] ? phos(0.85) : RED, 'left');
     label(c, Object.entries(p.ammo).map(([k, n]) => `${MISSILES[k].name[0]}:${n}`).join(' '), s.x + s.w - 10 * u, s.y + 43 * u, fs * 0.85, phos(0.55), 'right');
+    // Ship systems, coloured by health
+    const names = { guns: 'GUN', engine: 'ENG', shields: 'SHG', sensors: 'SNS' };
+    const keys = Object.keys(names);
+    keys.forEach((k, i) => {
+      const v = p.sys ? p.sys[k] : 1;
+      const col = v > 0.75 ? phos(0.85) : v > 0.4 ? AMBER : RED;
+      const x = s.x + 10 * u + i * (s.w - 20 * u) / keys.length;
+      const blink = v < 0.4 && (performance.now() / 300 | 0) % 2;
+      if (!blink) label(c, `${names[k]} ${Math.round(v * 100)}`, x, s.y + 56 * u, fs * 0.8, col, 'left');
+    });
+    const w = g.ships.find(x => x.wing && x.alive);
+    if (w) label(c, `${w.name} ${Math.round(w.armor / w.armorMax * 100)}%`, s.x + s.w - 10 * u, s.y + s.h - 24 * u - (g.storyStep() || g.missions[0] ? 13 * u : 0), fs * 0.8, '#7dffb0', 'right');
     label(c, `CR ${g.credits.toLocaleString()}`, s.x + 10 * u, s.y + s.h - 10 * u, fs * 0.92, '#ffe066', 'left');
     label(c, `HOLD ${g.cargoUsed()}/${g.cargoCap}`, s.x + s.w - 10 * u, s.y + s.h - 10 * u, fs * 0.92, phos(0.85), 'right');
     this.screenEnd(c, s);
@@ -555,7 +570,7 @@ export class Cockpit {
     renderer.setScissorTest(true);
 
     // Own ship: top-down schematic, gently rolling
-    const pm = this.models.player;
+    const pm = g.hull === 'bastion' ? this.models.bastion : this.models.player;
     let d = job(L.scrL, pm, m => m.rotation.set(0.55, 0, Math.sin(t * 0.6) * 0.25));
     cam.position.set(0, d * 0.9, d * 0.35);
     cam.up.set(0, 0, -1);

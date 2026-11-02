@@ -19,6 +19,10 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 - **Black hole:** the *Sable Rift*. Its gravity pulls harder the closer you get, it has a glowing accretion disk and bends light around it, and crossing the event horizon kills you.
 - **Combat:** twin lasers, homing missiles that need a lock, decoys, shield-impact flashes and smoking damaged ships. Two pirate types: nimble Raiders and heavily armed Marauders. Each has its own AI and missiles and pays a bounty.
 - **Salvage:** destroyed pirates drop glowing cargo pods. Target them with **T**, match speed with **B** and fly through them to scoop the goods into your hold.
+- **Ship damage:** armour hits can knock out your guns (slower fire), engine (less thrust and agility), shield generator (slower recharge) or sensors (radar drops contacts, slower missile locks). Damage-control patches systems up to 50% in flight; stations repair them fully.
+- **Mining:** shoot asteroids to crack them open and scoop the ore chunks (water ice in Corvane's Glass Belt).
+- **Hulls:** the agile *Kestrel* you start in, or the *Bastion* heavy fighter (four guns, thicker armour, bigger hold and missile rack, slower) from the shipyard.
+- **Wingmen:** hire a wingman at a station. They fly in formation, attack pirates near you, follow you through autopilot and jump gates, and take half the bounty of their kills.
 - **Living system:** civilian freighters fly between the stations. Pirates will prey on them, and shooting one down gets you fined.
 - **Docked at a station:**
   - **Market:** buy low and sell high at the other station.

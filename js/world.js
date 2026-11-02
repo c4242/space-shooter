@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sunMaterial, planetMaterial, atmosphereMaterial } from './shaders.js';
 
 // ---------------------------------------------------------------------------
 // Noise + texture helpers (everything is generated procedurally at startup)
@@ -89,6 +90,20 @@ function terraTexture(seed, sea = 0.52) {
   });
 }
 
+// Night-side city lights: clusters of warm dots on land, denser near coasts.
+function lightsTexture(seed, sea = 0.52) {
+  const n = makeNoise(seed), n2 = makeNoise(seed + 50), n3 = makeNoise(seed + 99);
+  return sphereTexture(1024, 512, (x, y, z) => {
+    let h = n(x * 1.8 + 11, y * 1.8, z * 1.8, 6);
+    h = (h - 0.5) * 3.2 + 0.5 + (n2(x * 6, y * 6, z * 6, 3) - 0.5) * 0.45;
+    if (h < sea || Math.abs(y) > 0.8) return [0, 0, 0];
+    const coast = 1 - clamp01((h - sea) * 6);
+    const c = n3(x * 40, y * 40, z * 40, 2);
+    const v = clamp01((c - 0.62 + coast * 0.08) * 9);
+    return [255 * v, 190 * v, 110 * v];
+  });
+}
+
 function cloudTexture(seed) {
   const n = makeNoise(seed);
   return sphereTexture(512, 256, (x, y, z) => {
@@ -132,21 +147,6 @@ function lavaTexture(seed) {
     let col = mix([38, 30, 28], [92, 70, 60], clamp01((h - 0.4) * 3));
     if (c < 0.035) col = mix([255, 120, 30], [255, 220, 120], 1 - c / 0.035);
     return col;
-  });
-}
-
-function nebulaTexture(seed = 77, tint = [1, 1, 1]) {
-  const n = makeNoise(seed), n2 = makeNoise(seed + 14);
-  return sphereTexture(1024, 512, (x, y, z) => {
-    const a = n(x * 1.6, y * 1.6, z * 1.6, 6);
-    const b = n2(x * 3 + 7, y * 3, z * 3, 4);
-    const band = Math.exp(-Math.pow((y * 0.9 + 0.3 * x) / 0.32, 2));
-    const neb = Math.max(0, a - 0.47) * 3.2 * (0.35 + band);
-    return [
-      (4 + 105 * neb * b + 16 * band) * tint[0],
-      (4 + 40 * neb * (1 - b) * 0.8 + 10 * band) * tint[1],
-      (10 + 120 * neb * (1 - b * 0.6) + 22 * band) * tint[2],
-    ];
   });
 }
 
@@ -254,7 +254,7 @@ export const COMMODITIES = [
 
 export function makeStation(accent) {
   const g = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({ color: 0x8c939c, metalness: 0.6, roughness: 0.45, envMapIntensity: 0.5 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x8c939c, metalness: 0.6, roughness: 0.45, envMapIntensity: 0.3 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x3a3f46, metalness: 0.5, roughness: 0.6 });
   const panelMat = new THREE.MeshStandardMaterial({ color: 0x1a2a55, metalness: 0.8, roughness: 0.3, emissive: 0x050a20 });
   const ringMat = new THREE.MeshStandardMaterial({
@@ -322,9 +322,8 @@ export const SYSTEMS = {
     name: 'Sable Rift', blurb: 'Frontier system at the edge of a black hole.',
     galaxy: [0, 0.7], police: 0.35, danger: 1,
     star: { radius: 8000, color: [5, 4.2, 3], glow: [2.2, 1.7, 1.1], light: 0xfff0dc },
-    nebula: { seed: 77, tint: [1, 1, 1] },
     planets: [
-      { name: 'Meridian', tex: () => terraTexture(7), radius: 5200, pos: [62000, -2000, -38000], atmo: 'rgba(110,180,255,', tilt: 0.3, clouds: () => cloudTexture(8), mapColor: '#4f9be8' },
+      { name: 'Meridian', tex: () => terraTexture(7), lights: () => lightsTexture(7), spec: 1, radius: 5200, pos: [62000, -2000, -38000], atmo: 'rgba(110,180,255,', tilt: 0.3, clouds: () => cloudTexture(8), mapColor: '#4f9be8' },
       { name: 'Tolvar', tex: () => gasTexture(3), radius: 15000, pos: [-95000, 6000, 35000], atmo: 'rgba(255,205,150,', tilt: 0.45, rings: true, mapColor: '#d6a56e' },
       { name: 'Vesk', tex: () => iceTexture(11), radius: 2600, pos: [-50000, 3000, 75000], atmo: 'rgba(190,230,255,', tilt: 0.1, mapColor: '#bcd4e6' },
     ],
@@ -347,10 +346,9 @@ export const SYSTEMS = {
     name: 'Corvane', blurb: 'Authority core system: shipyards, patrols, order.',
     galaxy: [0.85, -0.5], police: 0.85, danger: 0.5,
     star: { radius: 9500, color: [3.4, 4, 5.5], glow: [1.4, 1.8, 2.6], light: 0xe6f0ff },
-    nebula: { seed: 31, tint: [0.5, 0.9, 1.3] },
     planets: [
-      { name: 'Corvane Prime', tex: () => terraTexture(21), radius: 6200, pos: [70000, 3000, 30000], atmo: 'rgba(120,190,255,', tilt: 0.2, clouds: () => cloudTexture(22), mapColor: '#5aa8f0' },
-      { name: 'Brightwater', tex: () => terraTexture(33, 0.62), radius: 4800, pos: [-60000, -4000, 70000], atmo: 'rgba(90,170,255,', tilt: 0.4, clouds: () => cloudTexture(34), mapColor: '#2f7fd8' },
+      { name: 'Corvane Prime', tex: () => terraTexture(21), lights: () => lightsTexture(21), spec: 1, radius: 6200, pos: [70000, 3000, 30000], atmo: 'rgba(120,190,255,', tilt: 0.2, clouds: () => cloudTexture(22), mapColor: '#5aa8f0' },
+      { name: 'Brightwater', tex: () => terraTexture(33, 0.62), lights: () => lightsTexture(33, 0.62), spec: 1, radius: 4800, pos: [-60000, -4000, 70000], atmo: 'rgba(90,170,255,', tilt: 0.4, clouds: () => cloudTexture(34), mapColor: '#2f7fd8' },
       { name: 'Ashlund', tex: () => lavaTexture(5), radius: 3800, pos: [-30000, 2000, -55000], atmo: 'rgba(255,120,60,', tilt: 0.05, mapColor: '#c4552a' },
     ],
     stations: [
@@ -370,7 +368,6 @@ export const SYSTEMS = {
     name: 'Hollow Reach', blurb: 'Lawless red-dwarf system. Ashfang territory.',
     galaxy: [-0.85, -0.5], police: 0.08, danger: 1.6,
     star: { radius: 6000, color: [5, 2, 1.2], glow: [2.6, 1, 0.5], light: 0xffb08a },
-    nebula: { seed: 53, tint: [1.4, 0.6, 0.6] },
     planets: [
       { name: 'Hollow', tex: () => gasTexture(9, [[120, 90, 150], [70, 50, 100], [190, 160, 210], [230, 120, 90]]), radius: 13000, pos: [-60000, 4000, -50000], atmo: 'rgba(200,150,255,', tilt: 0.6, rings: true, mapColor: '#8a6aaa' },
       { name: 'Cinder', tex: () => lavaTexture(14), radius: 2800, pos: [50000, -2000, 40000], atmo: 'rgba(255,110,50,', tilt: 0.1, mapColor: '#b3482a' },
@@ -423,40 +420,46 @@ function buildWorld(id) {
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const VA = a => new THREE.Vector3(...a);
 
-  root.add(new THREE.AmbientLight(0x6a7890, 0.28));
-  const sunLight = new THREE.PointLight(def.star.light, 3.2, 0, 0);
+  // Space is black: just a whisper of fill light so silhouettes stay readable.
+  root.add(new THREE.AmbientLight(0x8090a0, 0.06));
+  const sunLight = new THREE.PointLight(def.star.light, 3.6, 0, 0);
   root.add(sunLight);
   world.sunPos = V(0, 0, 0);
 
-  // Sky
+  // Sky: pitch black with crisp pinpoint stars. A faint band of dim stars marks the galaxy; no haze.
   const sky = new THREE.Group();
-  sky.add(new THREE.Mesh(new THREE.SphereGeometry(450000, 48, 24),
-    new THREE.MeshBasicMaterial({ map: nebulaTexture(def.nebula.seed, def.nebula.tint), side: THREE.BackSide, depthWrite: false })));
-  const starGeo = new THREE.BufferGeometry();
-  const N = 9000, sp = new Float32Array(N * 3), sc = new Float32Array(N * 3);
   const v = new THREE.Vector3();
-  for (let i = 0; i < N; i++) {
-    v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-    if (Math.random() < 0.45) { v.y = (v.y * 0.15) - v.x * 0.33; v.normalize(); }
-    v.multiplyScalar(400000);
-    sp.set([v.x, v.y, v.z], i * 3);
-    const b = Math.pow(Math.random(), 5) * 1.5 + 0.3;
-    const tint = Math.random();
-    const c = tint < 0.15 ? [0.7, 0.8, 1.2] : tint < 0.3 ? [1.2, 1.0, 0.75] : [1, 1, 1];
-    sc.set([c[0] * b, c[1] * b, c[2] * b], i * 3);
+  const starTex = radialTexture([[0, 'rgba(255,255,255,1)'], [0.35, 'rgba(255,255,255,0.7)'], [1, 'rgba(255,255,255,0)']], 32);
+  const tilt = new THREE.Vector3(0.3, 1, 0.15).normalize();
+  for (const [N, size, bright] of [[14000, 1.25, [0.12, 0.55]], [1400, 2.2, [0.6, 1.25]]]) {
+    const geo = new THREE.BufferGeometry();
+    const sp = new Float32Array(N * 3), sc = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
+      if (size < 2 && Math.random() < 0.55) { v.addScaledVector(tilt, -v.dot(tilt) * (0.9 + Math.random() * 0.1)).normalize(); }
+      v.multiplyScalar(400000);
+      sp.set([v.x, v.y, v.z], i * 3);
+      const b = bright[0] + Math.pow(Math.random(), 3) * (bright[1] - bright[0]);
+      const t = Math.random();
+      const c = t < 0.12 ? [0.75, 0.85, 1.25] : t < 0.25 ? [1.2, 1.0, 0.78] : t < 0.3 ? [1.25, 0.8, 0.65] : [1, 1, 1];
+      sc.set([c[0] * b, c[1] * b, c[2] * b], i * 3);
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(sc, 3));
+    sky.add(new THREE.Points(geo, new THREE.PointsMaterial({ size, map: starTex, sizeAttenuation: false, vertexColors: true, depthWrite: false, transparent: true })));
   }
-  starGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-  starGeo.setAttribute('color', new THREE.BufferAttribute(sc, 3));
-  const starTex = radialTexture([[0, 'rgba(255,255,255,1)'], [0.4, 'rgba(255,255,255,0.6)'], [1, 'rgba(255,255,255,0)']], 32);
-  sky.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ size: 2.2, map: starTex, sizeAttenuation: false, vertexColors: true, depthWrite: false, transparent: true })));
   root.add(sky);
   world.sky = sky;
 
   // Star
-  const sun = new THREE.Mesh(new THREE.SphereGeometry(def.star.radius, 48, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(...def.star.color) }));
+  const sunMat = sunMaterial(def.star.color);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(def.star.radius, 96, 64), sunMat);
   root.add(sun);
-  sun.add(glowSprite(new THREE.Color(...def.star.glow), def.star.radius * 4.6));
-  sun.add(glowSprite(new THREE.Color(...def.star.glow).multiplyScalar(0.45), def.star.radius * 10, 0.1));
+  // Tight corona only: the sky stays black right up to the star.
+  const coronaTex = radialTexture([[0, 'rgba(255,255,255,0)'], [0.36, 'rgba(255,255,255,0)'], [0.41, 'rgba(255,255,255,0.55)'], [0.5, 'rgba(255,255,255,0.12)'], [0.75, 'rgba(255,255,255,0.02)'], [1, 'rgba(255,255,255,0)']], 512);
+  sun.add(glowSprite(new THREE.Color(...def.star.glow).multiplyScalar(0.7), def.star.radius * 4.9, 1, coronaTex));
+  world.sunMat = sunMat;
+  world.starColor = def.star.glow;
   world.planets.push({ name: def.name + ' (star)', pos: V(0, 0, 0), radius: def.star.radius, star: true, mapColor: '#' + new THREE.Color(...def.star.glow).multiplyScalar(0.45).getHexString() });
 
   // Planets
@@ -465,7 +468,10 @@ function buildWorld(id) {
     const grp = new THREE.Group();
     grp.position.copy(pos);
     grp.rotation.z = d.tilt;
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(d.radius, 96, 64), new THREE.MeshStandardMaterial({ map: d.tex(), roughness: 0.85, metalness: 0, envMapIntensity: 0 }));
+    const atmoRGB = d.atmo.match(/[\d.]+/g).slice(0, 3).map(x => +x / 255);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(d.radius, 128, 96), planetMaterial({
+      map: d.tex(), lights: d.lights ? d.lights() : null, spec: d.spec || 0, atmo: atmoRGB, sunPos: world.sunPos,
+    }));
     grp.add(mesh);
     let clouds = null;
     if (d.clouds) {
@@ -473,10 +479,8 @@ function buildWorld(id) {
         new THREE.MeshStandardMaterial({ map: d.clouds(), transparent: true, depthWrite: false, roughness: 1, envMapIntensity: 0 }));
       grp.add(clouds);
     }
-    const atmoTex = radialTexture([[0, d.atmo + '0)'], [0.74, d.atmo + '0)'], [0.795, d.atmo + '0.7)'], [0.83, d.atmo + '0.3)'], [1, d.atmo + '0)']], 512);
-    const atmo = new THREE.Sprite(new THREE.SpriteMaterial({ map: atmoTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    atmo.scale.setScalar(d.radius * 2.5);
-    grp.add(atmo);
+    const shell = 1.045;
+    grp.add(new THREE.Mesh(new THREE.SphereGeometry(d.radius * shell, 96, 64), atmosphereMaterial(atmoRGB, world.sunPos, Math.sqrt(1 - 1 / (shell * shell)))));
     if (d.rings) {
       const ring = new THREE.Mesh(radialRing(d.radius * 1.45, d.radius * 2.3, 160, 4),
         new THREE.MeshStandardMaterial({ map: planetRingTexture(4), transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 1, envMapIntensity: 0 }));
@@ -532,7 +536,6 @@ function buildWorld(id) {
     bh.add(diskGroup);
     const photonTex = radialTexture([[0, 'rgba(0,0,0,0)'], [0.6, 'rgba(255,220,180,0)'], [0.7, 'rgba(255,236,210,1)'], [0.76, 'rgba(255,170,90,0.3)'], [1, 'rgba(0,0,0,0)']], 512);
     bh.add(glowSprite(new THREE.Color(2.2, 1.8, 1.4), 4600, 1, photonTex));
-    bh.add(glowSprite(new THREE.Color(0.5, 0.35, 1.0), 30000, 0.18));
     root.add(bh);
     world.blackHole = { pos: bhPos, horizon: 1200, GM: 1.125e10, disks, name: 'Sable Rift' };
   }
@@ -601,6 +604,7 @@ function buildWorld(id) {
   world.update = (dt, camera) => {
     world.time += dt;
     const t = world.time;
+    sunMat.uniforms.time.value = t;
     sky.position.copy(camera.position);
     for (const p of world.planets) {
       if (p.mesh) p.mesh.rotation.y += dt * 0.008;

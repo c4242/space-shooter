@@ -26,7 +26,12 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
   - **Services:** repairs, afterburner fuel, missiles and decoys.
 - **Career save:** progress is saved in your browser whenever you dock or launch. After dying you can reload your last save or start over.
 - **Autopilot:** a cinematic external shot of your ship streaking across the screen, then you arrive at the selected nav point.
-- **Graphics:** bloom, tone mapping, procedural textures, particle explosions, space dust streaks and a lensing effect.
+- **Graphics:**
+  - Pitch-black space with crisp pinpoint stars and no haze.
+  - An animated star surface and lens flares (starburst, streak, ghosts). Planets block the flare.
+  - Planets with true day/night sides, city lights, ocean glints and glowing atmosphere rims.
+  - Black-hole lensing, explosions with shockwaves and tumbling debris, bloom, MSAA, and a subtle vignette.
+  - Add `?quality=low` to the URL on slower machines; touch devices use it automatically.
 - **Sound:** all effects and the ambient music (with a combat layer) are generated in code with the Web Audio API, so there are no audio files.
 - **Gamepad:** supported with the standard controller layout.
 
@@ -79,4 +84,5 @@ Then open http://localhost:8000.
 | `js/touch.js` | Touch controls |
 | `js/effects.js` | GPU particle system (explosions, trails, sparks) |
 | `js/lensing.js` | Black-hole lensing post-process shader |
+| `js/shaders.js` | Star, planet and atmosphere shaders; lens flare and lens finish passes |
 | `js/audio.js` | Synthesized sound effects and engine/gravity ambience |

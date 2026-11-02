@@ -55,7 +55,7 @@ export function volAt(game, pos) {
 // Models (built from primitives)
 // ---------------------------------------------------------------------------
 
-function mat(color, o = {}) { return new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.7, ...o }); }
+function mat(color, o = {}) { return new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.35, ...o }); }
 function part(g, geo, m, p = [0, 0, 0], r = [0, 0, 0], s = null) {
   const mesh = new THREE.Mesh(geo, m);
   mesh.position.set(...p); mesh.rotation.set(...r);

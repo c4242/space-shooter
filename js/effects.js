@@ -40,6 +40,19 @@ function softTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+const WAVE_GEO = new THREE.PlaneGeometry(1, 1);
+const WAVE_TEX = (() => {
+  const S = 256, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.62, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.82, 'rgba(255,255,255,0.9)'); grd.addColorStop(0.9, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, S, S);
+  return new THREE.CanvasTexture(c);
+})();
+const DEBRIS_GEO = new THREE.BoxGeometry(1, 1, 1);
+
 export class Particles {
   constructor(scene, max = 6000) {
     this.max = max; this.next = 0;
@@ -65,6 +78,9 @@ export class Particles {
     this.points.frustumCulled = false;
     this.points.renderOrder = 5;
     scene.add(this.points);
+    this.scene = scene;
+    this.waves = [];
+    this.debris = [];
     this._v = new THREE.Vector3();
   }
 
@@ -104,6 +120,7 @@ export class Particles {
       size[i] = s0[i] + (s1[i] - s0[i]) * t;
     }
     this.aPos.needsUpdate = this.aCol.needsUpdate = this.aSize.needsUpdate = true;
+    this.updateExtras(dt);
   }
 
   _rnd() {
@@ -112,8 +129,10 @@ export class Particles {
 
   explosion(pos, s = 1, baseVel = null) {
     const b = baseVel || new THREE.Vector3();
+    this.shockwave(pos, s, b);
+    if (s >= 0.9) this.spawnDebris(pos, s, b);
     const v = this._v;
-    this.emit(pos, b, { life: 0.3, size: 90 * s, sizeEnd: 150 * s, color: [5, 4, 3] });
+    this.emit(pos, b, { life: 0.22, size: 34 * s, sizeEnd: 70 * s, color: [3, 2.5, 2] });
     for (let i = 0; i < 36 * s; i++) {
       this._rnd().multiplyScalar((15 + Math.random() * 70) * s).add(b);
       this.emit(pos, v, { life: 0.5 + Math.random() * 0.9, size: (10 + Math.random() * 14) * s, sizeEnd: (30 + Math.random() * 30) * s, color: [4, 2, 0.7], colorEnd: [0.5, 0.08, 0.02], drag: 1.2 });
@@ -125,6 +144,58 @@ export class Particles {
     for (let i = 0; i < 18 * s; i++) {
       this._rnd().multiplyScalar((10 + Math.random() * 35) * s).add(b);
       this.emit(pos, v, { life: 2 + Math.random() * 1.5, size: 14 * s, sizeEnd: 55 * s, color: [0.22, 0.2, 0.19], colorEnd: [0.03, 0.03, 0.03], alpha: 0.7, drag: 0.6 });
+    }
+  }
+
+  // Expanding ring of light, oriented randomly so it reads as a 3D shell.
+  shockwave(pos, s, vel) {
+    const m = new THREE.Mesh(WAVE_GEO, new THREE.MeshBasicMaterial({
+      map: WAVE_TEX, color: new THREE.Color(2.2, 1.6, 1.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    m.position.copy(pos);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize());
+    this.scene.add(m);
+    this.waves.push({ m, t: 0, life: 0.9, size: 140 * s, vel: vel.clone() });
+  }
+
+  // Tumbling, glowing hull fragments.
+  spawnDebris(pos, s, vel) {
+    const n = Math.round(7 * s);
+    for (let i = 0; i < n; i++) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0x3a3c40, metalness: 0.6, roughness: 0.5, emissive: new THREE.Color(1.6, 0.6, 0.15), envMapIntensity: 0.3 });
+      const m = new THREE.Mesh(DEBRIS_GEO, mat);
+      m.scale.set(0.6 + Math.random() * 2.2, 0.3 + Math.random() * 1.2, 0.8 + Math.random() * 2.6).multiplyScalar(s);
+      m.position.copy(pos);
+      this.scene.add(m);
+      const v = this._rnd().clone().multiplyScalar(40 + Math.random() * 140).add(vel);
+      this.debris.push({ m, v, spin: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(6), t: 0, life: 4 + Math.random() * 3, smoke: 0 });
+    }
+  }
+
+  updateExtras(dt) {
+    for (let i = this.waves.length - 1; i >= 0; i--) {
+      const w = this.waves[i];
+      w.t += dt;
+      const k = w.t / w.life;
+      w.m.position.addScaledVector(w.vel, dt);
+      w.m.scale.setScalar(5 + w.size * Math.sqrt(k));
+      w.m.material.opacity = Math.max(0, 1 - k) * 0.9;
+      if (k >= 1) { this.scene.remove(w.m); w.m.material.dispose(); this.waves.splice(i, 1); }
+    }
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const d = this.debris[i];
+      d.t += dt;
+      d.m.position.addScaledVector(d.v, dt);
+      d.m.rotation.x += d.spin.x * dt; d.m.rotation.y += d.spin.y * dt; d.m.rotation.z += d.spin.z * dt;
+      const heat = Math.max(0, 1 - d.t / 1.8);
+      d.m.material.emissive.setRGB(1.6 * heat, 0.6 * heat, 0.15 * heat);
+      d.smoke -= dt;
+      if (heat > 0.05 && d.smoke <= 0) {
+        d.smoke = 0.05;
+        this.emit(d.m.position, d.v.clone().multiplyScalar(0.3), { life: 0.8, size: 2, sizeEnd: 6, color: [1.2 * heat + 0.15, 0.5 * heat + 0.14, 0.13], colorEnd: [0.04, 0.04, 0.04], alpha: 0.6 });
+      }
+      if (d.t > d.life - 1) d.m.scale.multiplyScalar(Math.exp(-3 * dt));
+      if (d.t >= d.life) { this.scene.remove(d.m); d.m.material.dispose(); this.debris.splice(i, 1); }
     }
   }
 

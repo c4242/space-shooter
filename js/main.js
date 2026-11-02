@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { getWorld, SYSTEMS } from './world.js';
 import { Particles, Bubbles, Dust } from './effects.js';
 import { LensingShader } from './lensing.js';
+import { LensFinishShader, FlareShader } from './shaders.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
@@ -35,8 +36,10 @@ const PIRATE_LINES = [
 // Renderer & post-processing
 // ---------------------------------------------------------------------------
 
+// Quality: ?quality=low (or a touch device) turns off MSAA and lowers resolution for slower GPUs.
+const LOW_GFX = new URLSearchParams(location.search).get('quality') === 'low' || matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW_GFX ? 1 : 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -48,12 +51,19 @@ const scene = new THREE.Scene();
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.5, 1.2e6);
 
-const composer = new EffectComposer(renderer);
+// HDR render target with MSAA (when supported) so edges stay smooth through post-processing.
+const msaa = !LOW_GFX && renderer.capabilities.isWebGL2 && renderer.extensions.has('EXT_color_buffer_float') ? 4 : 0;
+const pr0 = renderer.getPixelRatio();
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth * pr0, innerHeight * pr0, { type: THREE.HalfFloatType, samples: msaa }));
 composer.addPass(new RenderPass(scene, camera));
 const lensPass = new ShaderPass(LensingShader);
 composer.addPass(lensPass);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.85, 0.55, 0.8);
+// High threshold: only genuinely bright things (stars, engines, lasers, explosions) bloom; space stays black.
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.08, 0.92);
 composer.addPass(bloom);
+const flarePass = new ShaderPass(FlareShader);
+composer.addPass(flarePass);
+composer.addPass(new ShaderPass(LensFinishShader));
 composer.addPass(new OutputPass());
 
 // ---------------------------------------------------------------------------
@@ -1085,6 +1095,41 @@ function updateCamera(dt) {
   }
 }
 
+// Lens flare: project the star, fade it toward the screen edge, and hide it behind planets.
+const _fs = V(), _fo = V();
+let flareVis = 0;
+function updateFlare() {
+  const w = game.world, fu = flarePass.uniforms;
+  fu.aspect.value = innerWidth / innerHeight;
+  fu.time.value = performance.now() / 1000;
+  const inView = !['map', 'trade'].includes(game.state);
+  _fs.copy(w.sunPos).applyMatrix4(camera.matrixWorldInverse);
+  let vis = 0;
+  if (inView && _fs.z < 0) {
+    const toSun = _fs.copy(w.sunPos).sub(camera.position);
+    const dist = toSun.length();
+    toSun.divideScalar(dist);
+    vis = 1;
+    for (const p of w.planets) {
+      if (p.star) continue;
+      const oc = _fo.copy(p.pos).sub(camera.position);
+      const t = oc.dot(toSun);
+      if (t < 0 || t > dist) continue;
+      const miss = Math.sqrt(Math.max(0, oc.lengthSq() - t * t));
+      vis = Math.min(vis, THREE.MathUtils.smoothstep(miss, p.radius * 0.995, p.radius * 1.06));
+    }
+    const sp = w.sunPos.clone().project(camera);
+    fu.sun.value.set((sp.x + 1) / 2, (sp.y + 1) / 2);
+    const off = Math.hypot(sp.x, sp.y / (innerWidth / innerHeight)) ;
+    vis *= Math.pow(Math.max(0, 1 - off / 1.7), 1.3);
+  }
+  // Drop instantly when hidden, ease in when revealed.
+  flareVis = vis < flareVis ? vis : flareVis + (vis - flareVis) * 0.3;
+  fu.intensity.value = flareVis;
+  const c = w.starColor || [2, 1.7, 1.2], m = Math.max(...c);
+  fu.tint.value.setRGB(c[0] / m, c[1] / m, c[2] / m);
+}
+
 const _bhv = V(), _edge = V();
 function render() {
   const bh = game.world.blackHole;
@@ -1100,10 +1145,23 @@ function render() {
       const r = Math.abs(_edge.y - c.y) * 0.5;
       u.center.value.set((c.x + 1) / 2, (c.y + 1) / 2);
       u.radius.value = r;
-      u.strength.value = r > 0.0008 ? 1 : 0;
+      // The lens is a screen-space effect, so switch it off where a closer body (the star,
+      // a planet) sits in front of the black hole; otherwise it would warp that body too.
+      const bhDist = camera.position.distanceTo(bh.pos);
+      const toBh = V().subVectors(bh.pos, camera.position).normalize();
+      let k = 1;
+      for (const pl of game.world.planets) {
+        const d = camera.position.distanceTo(pl.pos);
+        if (d >= bhDist) continue;
+        const sep = toBh.angleTo(V().subVectors(pl.pos, camera.position));
+        const ang = Math.asin(Math.min(1, pl.radius / d));
+        k = Math.min(k, THREE.MathUtils.smoothstep(sep, ang + Math.atan(bh.horizon * 6 / bhDist), ang + Math.atan(bh.horizon * 14 / bhDist)));
+      }
+      u.strength.value = r > 0.0008 ? k : 0;
     }
   }
   u.aspect.value = innerWidth / innerHeight;
+  updateFlare();
 
   composer.render();
 

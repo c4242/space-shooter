@@ -42,7 +42,7 @@ export class Hud {
     return [w, h, ctx];
   }
 
-  resize() { this.W = innerWidth; this.H = innerHeight; this.fit(this.canvas); }
+  resize() { this.W = innerWidth; this.H = innerHeight; this.dpr = Math.min(devicePixelRatio || 1, 2); this.fit(this.canvas); }
 
   msg(text, color = '#9fe8ff') {
     this.messages.push({ text, color, t: performance.now() / 1000 });

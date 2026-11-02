@@ -106,6 +106,7 @@ export class Hud {
     }
     if (g.dashVisible && this.cracks.length) this.drawCracks(ctx);
     if (g.state !== 'docking') this.drawMessages(ctx);
+    if (g.state === 'flight') this.drawBanner(ctx);
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(${this.flashRGB},${Math.min(0.45, this.flash)})`;
       ctx.fillRect(0, 0, W, H);
@@ -385,6 +386,32 @@ export class Hud {
       ctx.fillText('GRAVITY WELL — BURN AWAY FROM THE RIFT', W / 2, H * 0.3);
       ctx.font = '13px "Share Tech Mono", monospace';
     }
+  }
+
+  // Big centred banner for promotions and event outcomes.
+  banner(title, sub = '') { this.ban = { title, sub, t: performance.now() / 1000 }; }
+  drawBanner(ctx) {
+    const b = this.ban;
+    if (!b) return;
+    const age = performance.now() / 1000 - b.t;
+    if (age > 5) { this.ban = null; return; }
+    const a = Math.min(1, age * 3, (5 - age) * 1.5);
+    const y = this.viewH * 0.36;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, y - 46, this.W, 76);
+    ctx.fillStyle = 'rgba(255,211,107,0.9)';
+    ctx.fillRect(0, y - 46, this.W, 2); ctx.fillRect(0, y + 28, this.W, 2);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px "Orbitron", sans-serif';
+    ctx.fillStyle = '#ffe9a8';
+    ctx.fillText(b.title, this.W / 2, y);
+    ctx.font = '14px "Share Tech Mono", monospace';
+    ctx.fillStyle = '#d8e6f4';
+    ctx.fillText(b.sub, this.W / 2, y + 20);
+    ctx.restore();
+    ctx.font = '13px "Share Tech Mono", monospace';
   }
 
   drawMessages(ctx) {

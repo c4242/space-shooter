@@ -12,9 +12,9 @@ import { LensFinishShader, FlareShader } from './shaders.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
-  hitShipWith, panAt, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
+  hitShipWith, panAt, buildFreighterModel, lockTimeFor, heatTarget, applyUpgrades, applySystems, holdFor, MISSILES, SYSTEMS_INFO,
 } from './ships.js';
-import { hasSave, loadSave, saveGame, changeRep, REP_WANTED, gateToward, stationNav } from './career.js';
+import { hasSave, loadSave, saveGame, changeRep, REP_WANTED, gateToward, stationNav, RANKS, rankOf, rankBonus } from './career.js';
 import { STORY, newStory, currentStep } from './story.js';
 import { Hud, fmtDist } from './hud.js';
 import { UI } from './ui.js';
@@ -149,6 +149,20 @@ game.isWanted = () => game.rep.authority <= REP_WANTED;
 game.storyStep = () => currentStep(game.story);
 const later = (t, fn) => game.timers.push({ t, fn });
 
+// Pilot score and rank.
+game.score = 0;
+function addScore(n) {
+  const before = rankOf(game.score);
+  game.score += n;
+  const after = rankOf(game.score);
+  if (after > before) {
+    hud.banner(`PROMOTED: ${RANKS[after].name.toUpperCase()}`, `All bounties and contract pay +${after * 5}%`);
+    audio.chime();
+    later(0.7, () => audio.chime());
+  }
+}
+game.rankName = () => RANKS[rankOf(game.score)].name;
+
 function rep(faction, delta, why) {
   const { before, after } = changeRep(game, faction, delta);
   if (faction === 'authority') {
@@ -204,6 +218,7 @@ function forgetShip(s) {
 }
 
 function clearCombat(keepWing = false) {
+  if (game.event) clearEvent();
   const wing = game.ships.find(s => s.wing && s.alive);
   if (wing && game.wing) game.wing.armorFrac = wing.armor / wing.armorMax;
   for (const s of game.ships) if (!s.isPlayer && !(keepWing && s.wing)) forgetShip(s);
@@ -231,14 +246,14 @@ function startCareer(save) {
   if (game.player) scene.remove(game.player.obj);
   Object.assign(game, {
     credits: 1500, cargo: {}, kills: 0, target: null, time: 0, view: 'cockpit', navIndex: 1, timers: [],
-    deathShown: false, shake: 0, missions: [], missionSeq: 0, rep: { authority: 0, ashfang: 0 }, story: newStory(), hull: 'kestrel', wing: null,
+    deathShown: false, shake: 0, missions: [], missionSeq: 0, rep: { authority: 0, ashfang: 0 }, story: newStory(), hull: 'kestrel', wing: null, score: 0, eventT: 90, event: null,
     upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 },
   });
   if (save) {
     Object.assign(game, {
       credits: save.credits, cargo: save.cargo || {}, kills: save.kills || 0,
       missions: save.missions || [], missionSeq: save.missionSeq || 0, upgrades: { ...game.upgrades, ...save.upgrades },
-      rep: { ...game.rep, ...save.rep }, story: { ...newStory(), ...save.story }, hull: save.hull || 'kestrel', wing: save.wing || null,
+      rep: { ...game.rep, ...save.rep }, story: { ...newStory(), ...save.story }, hull: save.hull || 'kestrel', wing: save.wing || null, score: save.score || 0,
     });
     for (const m of game.missions) if (m.type === 'bounty') m.spawned = false;
     game.story.spawned = false;
@@ -439,6 +454,7 @@ function storyOnDock(st) {
   if (!step || step.do !== 'dock' || step.sys !== game.sys || step.station !== st.index) return;
   const ch = STORY[S.ch];
   game.credits += ch.reward;
+  addScore(10);
   changeRep(game, 'authority', 10);
   ui.notice = { title: `CHAPTER ${S.ch + 1} COMPLETE: ${ch.title.toUpperCase()} (+${ch.reward.toLocaleString()} cr)`, text: ch.debrief };
   ui.tab = 'story';
@@ -863,6 +879,110 @@ function checkEncounters(dt) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Random events: distress calls and derelict wrecks, every few minutes of quiet flight.
+// ---------------------------------------------------------------------------
+function clearEvent() {
+  const E = game.event;
+  if (E && E.wreck) scene.remove(E.wreck);
+  game.event = null;
+  game.eventT = 150 + Math.random() * 120;
+}
+game.clearEvent = clearEvent;
+
+function startEvent(type) {
+  const p = game.player;
+  const f = forwardOf(p.obj);
+  const at = p.pos.clone().addScaledVector(f, 5500).add(V((Math.random() - 0.5) * 3000, (Math.random() - 0.5) * 1200, (Math.random() - 0.5) * 3000));
+  if (type === 'distress') {
+    const civ = new Ship(game, 'freighter');
+    civ.pos.copy(at);
+    civ.vel.copy(p.vel).add(V(Math.random() - 0.5, 0, Math.random() - 0.5).normalize().multiplyScalar(60));
+    faceToward(civ.obj, civ.pos.clone().add(civ.vel), V(0, 1, 0));
+    civ.dest = { pos: civ.pos.clone().addScaledVector(civ.vel.clone().normalize(), 80000) };
+    game.ships.push(civ);
+    const pirates = [];
+    const n = 2 + (Math.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const s = new Ship(game, i === 0 && Math.random() < 0.35 ? 'marauder' : 'pirate');
+      s.pos.copy(at).add(V((Math.random() - 0.5) * 900, (Math.random() - 0.5) * 400, (Math.random() - 0.5) * 900));
+      s.vel.copy(civ.vel);
+      s.aiTarget = civ; s.retarget = 10;
+      game.ships.push(s);
+      pirates.push(s);
+    }
+    game.event = { type, civ, pirates, t: 0 };
+    game.target = civ;
+    hud.msg(`${civ.name}: Mayday, mayday! Raiders on us. Anyone on this channel, please help!`, COL.warn);
+    audio.warning();
+  } else {
+    // Derelict: a burned-out freighter hulk with loose cargo drifting around it.
+    const m = buildFreighterModel();
+    m.group.traverse(o => {
+      if (!o.isMesh) return;
+      o.material = o.material.clone();
+      if (o.material.color) o.material.color.multiplyScalar(0.3);
+      if (o.material.emissive) o.material.emissive.setRGB(0.05, 0.02, 0);
+    });
+    for (const gl of m.glows) gl.visible = false;
+    m.group.position.copy(at);
+    m.group.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    scene.add(m.group);
+    const n = 3 + ((Math.random() * 3) | 0);
+    for (let i = 0; i < n; i++) salvage.drop({ pos: at, vel: p.vel.clone().multiplyScalar(0), radius: 140, kind: 'marauder' });
+    game.event = { type, wreck: m.group, at, t: 0, spin: V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.06), trap: Math.random() < 0.35 };
+    game.target = salvage.pods[salvage.pods.length - 1] || null;
+    hud.msg('Automated salvage beacon: derelict freighter detected. Cargo drifting free. No life signs.', COL.nav);
+    audio.blip();
+  }
+}
+
+function updateEvents(dt) {
+  const p = game.player;
+  const E = game.event;
+  if (!E) {
+    game.eventT = (game.eventT ?? 120) - dt;
+    if (game.eventT > 0) return;
+    const quiet = !game.ships.some(s => s.alive && (s.team === 'pirate') && s.pos.distanceTo(p.pos) < 12000);
+    const awayFromStations = !game.world.stations.some(st => st.pos.distanceTo(p.pos) < 6000);
+    const step = game.storyStep();
+    if (!quiet || !awayFromStations || (step && step.do === 'kill')) { game.eventT = 20; return; }
+    startEvent(Math.random() < 0.55 ? 'distress' : 'derelict');
+    return;
+  }
+  E.t += dt;
+  if (E.type === 'distress') {
+    const pirLeft = E.pirates.filter(s => s.alive).length;
+    if (!E.civ.alive) {
+      hud.msg(`${E.civ.name} has gone silent. Too late.`, COL.warn);
+      clearEvent();
+    } else if (pirLeft === 0) {
+      const pay = Math.round(1400 * rankBonus(game.score));
+      game.credits += pay;
+      changeRep(game, 'authority', 6);
+      addScore(3);
+      hud.msg(`${E.civ.name}: You saved our skins, pilot! Transferring ${pay} cr. Fly safe!`, COL.good);
+      hud.banner('RESCUE SUCCESSFUL', `+${pay} cr · Authority reputation +6`);
+      audio.chime();
+      clearEvent();
+    } else if (E.civ.pos.distanceTo(p.pos) > 35000) clearEvent();
+  } else {
+    E.wreck.rotation.x += E.spin.x * dt; E.wreck.rotation.y += E.spin.y * dt; E.wreck.rotation.z += E.spin.z * dt;
+    E.smoke = (E.smoke || 0) - dt;
+    if (E.smoke <= 0) {
+      E.smoke = 0.12;
+      const at = V((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 120).applyQuaternion(E.wreck.quaternion).add(E.wreck.position);
+      game.fx.emit(at, V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(6), { life: 4, size: 14, sizeEnd: 60, color: [0.22, 0.2, 0.19], colorEnd: [0.03, 0.03, 0.03], alpha: 0.5 });
+      if (Math.random() < 0.15) game.fx.sparks(at, [3, 1.6, 0.6], 6);
+    }
+    if (E.trap && !E.sprung && p.pos.distanceTo(E.wreck.position) < 1500) {
+      E.sprung = true;
+      later(2, () => { hud.msg('Ashfang: Thanks for coming to collect, courier. We\'ll take it from here.', COL.hostile); spawnPirates(2 + (Math.random() < 0.5 ? 1 : 0)); });
+    }
+    if (E.t > 200 || E.wreck.position.distanceTo(p.pos) > 40000) clearEvent();
+  }
+}
+
 function updateTraffic(dt) {
   const p = game.player;
   // Freighters between the stations of this system.
@@ -963,9 +1083,11 @@ game.onShipDestroyed = (s, killer) => {
     return;
   }
   if (byPlayer) {
-    game.credits += s.bounty;
+    const pay = Math.round(s.bounty * rankBonus(game.score));
+    game.credits += pay;
     game.kills++;
-    hud.msg(`${s.name} destroyed. Bounty +${s.bounty} cr`, COL.good);
+    hud.msg(`${s.name} destroyed. Bounty +${pay} cr`, COL.good);
+    addScore(s.behemoth ? 40 : s.capital ? 15 : s.kind === 'warlord' ? 12 : s.kind === 'marauder' ? 3 : 1);
     changeRep(game, 'authority', 2);
     changeRep(game, 'ashfang', s.kind === 'warlord' ? -50 : -3);
     audio.cash();
@@ -976,8 +1098,9 @@ game.onShipDestroyed = (s, killer) => {
       m.killed++;
       if (m.killed >= m.count) {
         game.missions.splice(game.missions.indexOf(m), 1);
-        game.credits += m.reward;
+        game.credits += Math.round(m.reward * rankBonus(game.score));
         changeRep(game, 'authority', 5);
+        addScore(4);
         later(0.8, () => { hud.msg(`Contract complete: ${m.client} pays ${m.reward.toLocaleString()} cr.`, COL.good); audio.chime(); autoRoute(); });
       } else hud.msg(`Contract: ${m.killed}/${m.count} raiders destroyed.`, COL.nav);
     }
@@ -1038,7 +1161,8 @@ function completeDeliveries(st) {
   for (const m of [...game.missions]) {
     if (m.type !== 'delivery' || m.sys !== game.sys || m.dest !== st.index) continue;
     game.abandonMission(m);
-    game.credits += m.reward;
+    game.credits += Math.round(m.reward * rankBonus(game.score));
+    addScore(3);
     if (m.illegal) { changeRep(game, 'ashfang', 8); changeRep(game, 'authority', -2); }
     else changeRep(game, 'authority', 5);
     hud.msg(`Delivery complete: ${m.client} pays ${m.reward.toLocaleString()} cr.`, COL.good);
@@ -1342,6 +1466,7 @@ function updateFlight(dt) {
     checkCollisions(dt);
     checkEncounters(dt);
     updateTraffic(dt);
+    updateEvents(dt);
     storyUpdate();
   }
   // Ships that wander far away are dropped.

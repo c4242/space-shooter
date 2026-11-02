@@ -23,10 +23,19 @@ export function saveGame(game, stationIndex) {
     upgrades: game.upgrades, missions: game.missions, missionSeq: game.missionSeq, navIndex: game.navIndex,
     story: game.story, ammo: p.ammo, missileType: p.missileType, decoys: p.decoys,
     armorFrac: p.armor / p.armorMax, abFuel: p.abFuel,
-    hull: game.hull, wing: game.wing, sysHealth: p.sys,
+    hull: game.hull, wing: game.wing, sysHealth: p.sys, score: game.score,
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch { /* storage unavailable: play without saving */ }
 }
+
+// ---------------------------------------------------------------- pilot rank
+export const RANKS = [
+  { name: 'Cadet', at: 0 }, { name: 'Pilot Officer', at: 10 }, { name: 'Flight Lieutenant', at: 30 },
+  { name: 'Veteran', at: 65 }, { name: 'Squadron Leader', at: 120 }, { name: 'Ace', at: 200 }, { name: 'Legend', at: 320 },
+];
+export function rankOf(score) { let r = 0; RANKS.forEach((x, i) => { if (score >= x.at) r = i; }); return r; }
+// Each rank adds 5% to bounty and contract pay.
+export const rankBonus = score => 1 + 0.05 * rankOf(score);
 
 // ---------------------------------------------------------------- reputation
 export const REP_WANTED = -25;

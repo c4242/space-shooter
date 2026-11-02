@@ -506,6 +506,7 @@ export class UI {
     this.menuEl.classList.remove('hidden');
     btn2.classList.add('hidden');
     document.getElementById('settings').classList.toggle('hidden', kind !== 'paused');
+    this.menuEl.classList.toggle('dim-bg', kind === 'paused');
     if (kind === 'start') {
       if (hasSave()) {
         btn.textContent = 'CONTINUE';

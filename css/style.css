@@ -137,3 +137,5 @@ body.flying { cursor: none; }
 .settings select { background: #0e1b28; color: #dff3ff; border: 1px solid #2a4a66; border-radius: 3px; font-family: inherit; }
 .settings .dim { grid-column: span 2; color: #7f9ab3; min-height: 1em; }
 @media (max-width: 560px) { .settings { grid-template-columns: 1fr; } .settings .dim { grid-column: span 1; } }
+
+#menu.dim-bg { background: rgba(2, 5, 10, 0.86); }

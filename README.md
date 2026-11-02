@@ -46,6 +46,7 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 | Action | Keys |
 |---|---|
 | Steer | Mouse (toggle with **F**), or **Arrow keys** (Up = nose down, **I** inverts) |
+| Free the cursor | hold **Alt** (or turn mouse flight off with **F**), then click a ship, pod or station on screen to target it |
 | Roll | **Q / E** |
 | Thrust | **W / S** or **+ / −** (throttle = engine thrust), **Backspace** = cut thrust |
 | Brake / reverse thrust | hold **C** (thrusters cancel drift) / hold **Z** |
@@ -57,7 +58,7 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 | Targets | **T** cycle, **R** nearest hostile |
 | Navigation | **N** cycle nav points, **M** nav map (click to select), **A** autopilot, **J** jump at a gate |
 | Docking | **D** within 2.2 km of a station, below 150 m/s |
-| External view | **V** |
+| Views | **V** fixed external view, **F2** chase camera (springy, banks with the ship, widens with speed) |
 | Pause / help | **P**, **Esc** or **H** |
 | Music / mute all | **U** / **K** |
 | Gamepad | left stick pitch/yaw, right stick roll, RT fire, LT afterburner, A missile, B decoy, X/Y targets, RB/LB thrust, R3 brake, L3 missile type, D-pad autopilot/dock-or-jump/nav/map, Start pause, Back view |

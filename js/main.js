@@ -6,7 +6,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { getWorld, SYSTEMS } from './world.js';
-import { Particles, Bubbles, Dust } from './effects.js';
+import { Particles, Bubbles, Dust, WarpTunnel } from './effects.js';
 import { LensingShader } from './lensing.js';
 import { LensFinishShader, FlareShader } from './shaders.js';
 import {
@@ -93,6 +93,7 @@ game.fx = new Particles(scene);
 game.bubbles = new Bubbles(scene);
 const salvage = game.salvage = new Salvage(game);
 const dust = new Dust(scene);
+const warp = new WarpTunnel(scene);
 const hud = game.hud = new Hud(game);
 const ui = game.ui = new UI(game);
 const cockpit = game.cockpit = new Cockpit(game);
@@ -259,6 +260,7 @@ function startCareer(save) {
   ui.hideMenu();
   setDash(true);
   hud.messages = [];
+  hud.cracks = [];
   autoRoute();
   if (save) {
     later(0.6, () => hud.msg(`${st.name} Control: Welcome back, pilot. Launch clear.`, COL.comm));
@@ -313,6 +315,7 @@ game.launchFromStation = st => {
   placeAtStation(st);
   saveAt(st);
   spawnWing();
+  resetChase();
   game.state = 'flight';
   game.fade = 1;
   autoRoute();
@@ -502,6 +505,20 @@ function requestDock() {
   hud.msg(`${st.name}: Docking clearance granted.`, COL.good);
   audio.chime();
   game.dockStation = st;
+  // Cinematic approach: the ship flies a curve into the docking bay, watched from outside.
+  const up = V(0, 1, 0).applyQuaternion(st.group.quaternion);
+  const side = V().crossVectors(st.axis, up).normalize();
+  game.dock = {
+    t: 0, T: 5.5, st, prevView: game.view,
+    p0: p.pos.clone(), p1: p.pos.clone().addScaledVector(p.vel, 1.5),
+    p2: st.pos.clone().addScaledVector(st.axis, 1700), p3: st.pos.clone().addScaledVector(st.axis, 420),
+    up, cam: st.pos.clone().addScaledVector(st.axis, 2300).addScaledVector(side, 1100).addScaledVector(up, 380),
+    look: p.pos.clone(),
+  };
+  game.target = null;
+  setDash(false);
+  p.obj.visible = true;
+  p.vel.set(0, 0, 0);
   game.state = 'docking';
 }
 
@@ -523,6 +540,31 @@ function startJump() {
   hud.msg(`Jump drive engaged: ${SYSTEMS[gate.to].name}`, COL.nav);
 }
 
+const _bz = V(), _bt = V();
+function bezier(o, a, b, c, d, u) {
+  const v = 1 - u;
+  return o.copy(a).multiplyScalar(v * v * v).addScaledVector(b, 3 * v * v * u).addScaledVector(c, 3 * v * u * u).addScaledVector(d, u * u * u);
+}
+function updateDocking(dt) {
+  const D = game.dock, p = game.player;
+  D.t += dt;
+  const k = Math.min(1, D.t / D.T);
+  const u = k * k * (3 - 2 * k);
+  bezier(p.pos, D.p0, D.p1, D.p2, D.p3, u);
+  bezier(_bt, D.p0, D.p1, D.p2, D.p3, Math.min(1, u + 0.01)).sub(p.pos);
+  if (_bt.lengthSq() > 1e-6) faceToward(p.obj, _bt.add(p.pos), D.up);
+  p.vel.set(0, 0, 0);
+  p.mainThrust = 0.25 + 0.3 * Math.sin(Math.PI * Math.min(1, k * 1.2));
+  p.throttle = 0; p.afterburner = false;
+  camera.position.copy(D.cam);
+  camera.up.copy(D.up);
+  D.look.lerp(p.pos, 1 - Math.exp(-4 * dt));
+  camera.lookAt(D.look);
+  audio.engine(0.25, false, true);
+  if (D.t > D.T - 0.9) game.fade = Math.min(1, (D.t - (D.T - 0.9)) / 0.8);
+  return D.t >= D.T;
+}
+
 function updateJump(dt) {
   const J = game.jump, p = game.player;
   J.t += dt;
@@ -532,7 +574,9 @@ function updateJump(dt) {
   // The view stretches and whites out while the drive spools up.
   camera.fov = 72 + Math.min(1, J.t / 1.6) * 40 * (J.done ? Math.max(0, 1 - (J.t - 1.8) / 0.8) : 1);
   updateProjection();
-  hud.flash = Math.min(1, Math.max(0, (J.t - 1) * 1.4)) * (J.done ? Math.max(0, 1 - (J.t - 1.8) / 0.8) : 1);
+  J.warp = J.done ? Math.max(0, 1 - (J.t - 1.8) / 0.8) : Math.min(1, J.t / 1.6);
+  // Brief white pulse only at the moment of transition.
+  hud.flash = Math.max(0, 1 - Math.abs(J.t - 1.8) / 0.25) * 0.9;
   hud.flashRGB = '220,235,255';
   game.shake = 0.6;
   if (J.t >= 1.8 && !J.done) {
@@ -546,8 +590,10 @@ function updateJump(dt) {
     game.navIndex = game.navs.indexOf(arrive);
     autoRoute();
     regroupWing();
+    resetChase();
   }
   if (J.t >= 2.6) {
+    J.warp = 0;
     camera.fov = 72; updateProjection();
     p.afterburner = false; p.throttle = 0;
     game.state = 'flight';
@@ -633,10 +679,11 @@ function finishAutopilot() {
   game.view = a.prevView;
   game.ap = null;
   game.state = 'flight';
-  p.obj.visible = game.view === 'external';
+  p.obj.visible = game.view !== 'cockpit';
   setDash(game.view === 'cockpit');
   game.fade = 1;
   camera.up.set(0, 1, 0);
+  resetChase();
   hud.msg(`Arrived: ${nav.name}`, COL.nav);
   if (nav.kind === 'station') later(1, () => hud.msg(`${nav.station.name} Control: Welcome. Slow below 150 m/s and press D to dock.`, COL.comm));
   if (nav.kind === 'jump') later(1, () => hud.msg(`${nav.name}: press J to jump to ${SYSTEMS[nav.to].name}.`, COL.comm));
@@ -885,7 +932,7 @@ game.onPlayerHit = r => {
   hud.flash = r.armor ? 0.5 : 0.22;
   hud.flashRGB = r.armor ? '255,60,30' : '60,140,255';
   game.shake = Math.max(game.shake, r.armor ? 1 : 0.4);
-  if (r.armor) audio.armorHit(); else audio.shieldHit();
+  if (r.armor) { audio.armorHit(); if (game.view === 'cockpit' && Math.random() < 0.35) hud.addCrack(); } else audio.shieldHit();
 };
 
 game.onPlayerDestroyed = msg => playerDies(msg);
@@ -982,7 +1029,7 @@ function playerControl(dt) {
     pitch -= touch.y;
     yaw -= touch.x;
   }
-  if (game.mouseFlight && game.mouse.inside && !game.touchMode) {
+  if (game.mouseFlight && game.mouse.inside && !game.touchMode && !game.mouseFree) {
     const cx = innerWidth / 2, cy = hud.viewH / 2;
     const R = Math.min(innerWidth, hud.viewH) * 0.38;
     let dx = (game.mouse.x - cx) / R, dy = (game.mouse.y - cy) / R;
@@ -1212,16 +1259,32 @@ function updateCamera(dt) {
     camera.lookAt(s.pos);
     return;
   }
-  if (st === 'autopilot' || st === 'dead' || !p) return;
+  if (st === 'autopilot' || st === 'dead' || st === 'docking' || !p) return;
   if (game.view === 'cockpit') {
     camera.quaternion.copy(p.obj.quaternion);
     camera.position.copy(p.pos).add(V(0, 1.4, -3).applyQuaternion(p.obj.quaternion));
+  } else if (game.view === 'chase') {
+    // Chase cam: a spring-damped camera that trails the ship, lags into turns,
+    // banks with it and widens the field of view with speed.
+    const C = game.chase;
+    const want = V(0, 11, 52).applyQuaternion(p.obj.quaternion).add(p.pos);
+    C.pos.addScaledVector(p.vel, dt);                     // carried along with the ship
+    C.pos.lerp(want, 1 - Math.exp(-5 * dt));               // then sprung toward the ideal spot
+    const ahead = V(0, 2, -90).applyQuaternion(p.obj.quaternion).add(p.pos);
+    C.look.addScaledVector(p.vel, dt).lerp(ahead, 1 - Math.exp(-9 * dt));
+    C.up.lerp(V(0, 1, 0).applyQuaternion(p.obj.quaternion), 1 - Math.exp(-4 * dt)).normalize();
+    camera.position.copy(C.pos);
+    camera.up.copy(C.up);
+    camera.lookAt(C.look);
+    const fov = 72 + Math.min(14, p.speed / 45) + (p.afterburner ? 4 : 0);
+    if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-3 * dt)); updateProjection(); }
   } else {
     _camQ.copy(p.obj.quaternion);
     camera.quaternion.slerp(_camQ, 1 - Math.exp(-8 * dt));
     camera.position.copy(p.pos).add(V(0, 9, 42).applyQuaternion(camera.quaternion));
     camera.rotateX(-0.06);
   }
+  if (game.view !== 'chase' && game.state !== 'jump' && Math.abs(camera.fov - 72) > 0.05) { camera.fov = 72; updateProjection(); }
   if (game.shake > 0 && (st === 'flight' || st === 'jump')) {
     const s = game.shake;
     camera.rotateX((Math.random() - 0.5) * 0.012 * s);
@@ -1307,11 +1370,28 @@ function render() {
 // Input
 // ---------------------------------------------------------------------------
 
-function toggleView() {
-  game.view = game.view === 'cockpit' ? 'external' : 'cockpit';
-  game.player.obj.visible = game.view === 'external';
-  setDash(game.view === 'cockpit');
-  if (game.view === 'external') camera.quaternion.copy(game.player.obj.quaternion);
+function setView(v) {
+  const p = game.player;
+  game.view = v;
+  p.obj.visible = v !== 'cockpit';
+  setDash(v === 'cockpit');
+  if (v === 'external') camera.quaternion.copy(p.obj.quaternion);
+  if (v === 'chase') {
+    // Start the spring where the camera would ideally be, so it doesn't swoop in from the cockpit.
+    game.chase = {
+      pos: V(0, 11, 52).applyQuaternion(p.obj.quaternion).add(p.pos),
+      look: V(0, 2, -90).applyQuaternion(p.obj.quaternion).add(p.pos),
+      up: V(0, 1, 0).applyQuaternion(p.obj.quaternion),
+    };
+  }
+  camera.up.set(0, 1, 0);
+}
+function resetChase() { if (game.view === 'chase' && game.player) setView('chase'); }
+game.resetChase = resetChase;
+function toggleView() { setView(game.view === 'cockpit' ? 'external' : 'cockpit'); }
+function toggleChase() {
+  setView(game.view === 'chase' ? 'cockpit' : 'chase');
+  hud.msg(game.view === 'chase' ? 'Chase camera (F2 to return to the cockpit)' : 'Cockpit view', COL.comm);
 }
 
 function playerMissile() {
@@ -1387,6 +1467,7 @@ function onKey(code) {
     case 'Enter': case 'NumpadEnter': playerMissile(); break;
     case 'Backspace': game.player.throttle = 0; break;
     case 'KeyV': toggleView(); break;
+    case 'F2': toggleChase(); break;
     case 'KeyI':
       game.invertPitch = !game.invertPitch;
       hud.msg(`Pitch keys: ${game.invertPitch ? 'Up = nose up' : 'Up = nose down'}`, COL.comm);
@@ -1409,14 +1490,14 @@ touch = initTouch(game, code => {
   onKey(code);
 });
 
-const PREVENT = new Set(['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Enter']);
+const PREVENT = new Set(['AltLeft', 'AltRight', 'F2', 'Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Enter']);
 addEventListener('keydown', e => {
   if (PREVENT.has(e.code)) e.preventDefault();
   audio.init();
   keys[e.code] = true;
   if (!e.repeat) onKey(e.code);
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code.startsWith('Alt')) e.preventDefault(); });
 addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
   game.mouse.left = false;
@@ -1424,10 +1505,30 @@ addEventListener('blur', () => {
 });
 addEventListener('mousemove', e => { if (game.touchMode) return; game.mouse.x = e.clientX; game.mouse.y = e.clientY; game.mouse.inside = true; });
 document.documentElement.addEventListener('mouseleave', () => { game.mouse.inside = false; game.mouse.left = false; });
+// Click on a ship, pod or station on screen to target it.
+function pickAt(x, y) {
+  const p = game.player;
+  const cands = [...game.ships.filter(s => s.alive && !s.isPlayer), ...salvage.pods, ...game.world.stations];
+  let best = null, bd = 34;
+  for (const c of cands) {
+    if (c.pos.distanceTo(p.pos) > 30000) continue;
+    const pr = hud.project(c.pos);
+    if (!pr.on) continue;
+    const d = Math.hypot(pr.x - x, pr.y - y);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
 addEventListener('mousedown', e => {
   if (game.state !== 'flight' || game.touchMode) return;
+  const free = game.mouseFree || !game.mouseFlight;
+  if (e.button === 0 && free) {
+    const t = pickAt(e.clientX, e.clientY);
+    if (t) { game.target = t; game.player.lockTime = 0; audio.blip(); return; }
+    if (game.mouseFree) return; // Alt held: clicking empty space does nothing
+  }
   if (e.button === 0) game.mouse.left = true;
-  if (e.button === 2) playerMissile();
+  if (e.button === 2 && !game.mouseFree) playerMissile();
 });
 addEventListener('mouseup', e => { if (e.button === 0) game.mouse.left = false; });
 addEventListener('contextmenu', e => e.preventDefault());
@@ -1449,9 +1550,14 @@ function frame(now) {
   else if (st === 'jump') { game.time += dt; updateJump(dt); }
   else if (st === 'docking') {
     updateFlight(dt);
-    game.fade = Math.min(1, game.fade + dt * 2.6);
-    if (game.fade >= 1) {
+    if (updateDocking(dt)) {
       const p = game.player;
+      game.view = game.dock.prevView;
+      p.obj.visible = game.view !== 'cockpit';
+      camera.up.set(0, 1, 0);
+      if (game.view === 'cockpit') setDash(true);
+      resetChase();
+      hud.cracks = [];
       p.shieldF = p.shieldR = p.shieldMax;
       p.vel.set(0, 0, 0); p.throttle = 0;
       clearCombat();
@@ -1478,10 +1584,13 @@ function frame(now) {
   const p = game.player;
   const combat = p && p.alive && game.ships.some(s => isThreat(s) && s.pos.distanceTo(p.pos) < 7000) ? 1 : 0;
   audio.music(dt, st !== 'menu', combat);
-  document.body.classList.toggle('flying', st === 'flight' && game.mouseFlight && !game.touchMode);
+  game.mouseFree = !!(keys.AltLeft || keys.AltRight);
+  game.pickHover = st === 'flight' && game.player && game.mouse.inside && !game.touchMode && (game.mouseFree || !game.mouseFlight) ? pickAt(game.mouse.x, game.mouse.y) : null;
+  document.body.classList.toggle('flying', st === 'flight' && game.mouseFlight && !game.touchMode && !game.mouseFree);
   updateShipVisuals(dt);
   updateCamera(dt);
   game.world.update(dt, camera);
+  warp.update(dt, camera, st === 'jump' && game.jump ? game.jump.warp || 0 : 0);
   dust.update(camera.position, p ? p.vel : V(), !!p && p.alive && (st === 'flight' || st === 'docking' || st === 'jump'));
   render();
   hud.draw(dt);

@@ -637,7 +637,7 @@ function buildWorld(id) {
   // Stations
   const _l = new THREE.Vector3();
   def.stations.forEach((d, si) => {
-    const pl = world.planets[d.planet + 1];
+    const pl = world.planets.filter(q => !q.star)[d.planet];
     const pos = pl.pos.clone().add(VA(d.offset));
     const m = makeStation(d.accent);
     m.group.position.copy(pos);

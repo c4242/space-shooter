@@ -6,7 +6,9 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 
 ## Features
 
-- **Cockpit:** canopy frame, HUD target brackets, a lead indicator showing where to aim, and missile lock-on. A target screen shows a live 3D view of your target. There's also a radar (centre = ahead, edge = behind), instrument panel and warning lights (SHLD, ARMR, MSL, LOCK, GRAV, FUEL, AUTO, DOCK).
+- **Cockpit:** an enclosed green-metal cockpit with canopy struts, an overhead panel of warning lights (SHLD, ARMR, INCM incoming missile, TRCK enemy tracking you, GRAV, FUEL, AUTO, DOCK) and blinking side-wall lights. The centre console has a red LED gun-energy bar, SET/SPD readouts, a shield display, a round radar (centre = ahead, edge = behind), a missile LOCK lamp, an ordnance readout and an afterburner fuel gauge.
+- **Side screens:** two green screens showing live wireframes. The WEAPONS screen shows your own ship, loadout, credits and cargo. The TARGETING screen shows the target, turned the way it's facing you, with curved shield and armour gauges.
+- **HUD:** target brackets, a lead indicator showing where to aim, missile lock-on, and nav and off-screen markers.
 - **Star system:** a sun, three generated planets (one with rings), an asteroid belt, two trading stations and five nav points.
 - **Black hole:** the *Sable Rift*. Its gravity pulls harder the closer you get, it has a glowing accretion disk and bends light around it, and crossing the event horizon kills you.
 - **Combat:** twin lasers, homing missiles that need a lock, decoys, and pirate fighters with their own AI, missiles and bounties.
@@ -52,7 +54,8 @@ Then open http://localhost:8000.
 | `js/main.js` | Renderer, post-processing, game loop, input, autopilot, docking, encounters |
 | `js/world.js` | Procedural star system: sky, sun, planets, stations, black hole, asteroids, nav points, market data |
 | `js/ships.js` | Ship models, flight model, pirate AI, lasers, missiles, decoys, damage |
-| `js/hud.js` | HUD overlay, target VDU, radar, instruments, warning lights |
+| `js/hud.js` | HUD overlay: crosshair, target brackets, lead indicator, nav markers, messages |
+| `js/cockpit.js` | Cockpit frame, console instruments, radar, warning lights, wireframe screens |
 | `js/ui.js` | Nav map, trade screen, menus |
 | `js/effects.js` | GPU particle system (explosions, trails, sparks) |
 | `js/lensing.js` | Black-hole lensing post-process shader |

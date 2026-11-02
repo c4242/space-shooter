@@ -20,32 +20,8 @@
   <!-- WebGL canvas is inserted here by js/main.js -->
   <canvas id="hud"></canvas>
 
-  <!-- Cockpit dashboard -->
-  <div id="dash" class="hidden">
-    <div class="mfd" id="mfdL">
-      <div class="screen" id="vdu"><canvas id="vduCanvas"></canvas></div>
-      <div class="mfd-label">TARGET VDU</div>
-      <div class="mfd-buttons"><i></i><i></i><i></i><i></i></div>
-    </div>
-    <div id="console">
-      <div id="lights">
-        <div class="light" id="lt-shld">SHLD</div>
-        <div class="light" id="lt-armr">ARMR</div>
-        <div class="light" id="lt-msl">MSL</div>
-        <div class="light" id="lt-lock">LOCK</div>
-        <div class="light" id="lt-grav">GRAV</div>
-        <div class="light" id="lt-fuel">FUEL</div>
-        <div class="light" id="lt-auto">AUTO</div>
-        <div class="light" id="lt-dock">DOCK</div>
-      </div>
-      <canvas id="instr"></canvas>
-    </div>
-    <div class="mfd" id="mfdR">
-      <div class="screen"><canvas id="radar"></canvas></div>
-      <div class="mfd-label">RADAR</div>
-      <div class="mfd-buttons"><i></i><i></i><i></i><i></i></div>
-    </div>
-  </div>
+  <!-- Cockpit frame, instruments and screens (drawn by js/cockpit.js) -->
+  <canvas id="cockpit" class="hidden"></canvas>
 
   <!-- Nav map -->
   <div id="map" class="overlay hidden"><canvas id="mapCanvas"></canvas></div>

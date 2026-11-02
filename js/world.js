@@ -241,7 +241,7 @@ export const COMMODITIES = [
 // Station model
 // ---------------------------------------------------------------------------
 
-function makeStation(accent) {
+export function makeStation(accent) {
   const g = new THREE.Group();
   const metal = new THREE.MeshStandardMaterial({ color: 0x8c939c, metalness: 0.6, roughness: 0.45, envMapIntensity: 0.5 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x3a3f46, metalness: 0.5, roughness: 0.6 });

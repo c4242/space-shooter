@@ -15,6 +15,7 @@ import {
 } from './ships.js';
 import { Hud, fmtDist } from './hud.js';
 import { UI } from './ui.js';
+import { Cockpit } from './cockpit.js';
 import { audio } from './audio.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -43,7 +44,6 @@ const scene = new THREE.Scene();
 // Soft studio reflections so metal hulls read well; planets opt out via envMapIntensity: 0.
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.5, 1.2e6);
-const tcam = new THREE.PerspectiveCamera(35, 1, 0.5, 1.2e6);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -75,7 +75,7 @@ game.navs = game.world.navs;
 game.fx = new Particles(scene);
 const hud = game.hud = new Hud(game);
 const ui = game.ui = new UI(game);
-const dashEl = document.getElementById('dash');
+const cockpit = game.cockpit = new Cockpit(game);
 
 game.cargoUsed = () => Object.values(game.cargo).reduce((a, c) => a + c.qty, 0);
 const later = (t, fn) => game.timers.push({ t, fn });
@@ -101,8 +101,8 @@ function updateProjection() {
 
 function setDash(visible) {
   game.dashVisible = visible;
-  dashEl.classList.toggle('hidden', !visible);
-  game.dashH = visible ? dashEl.offsetHeight : 0;
+  cockpit.canvas.classList.toggle('hidden', !visible);
+  game.dashH = visible ? cockpit.L.D : 0;
   updateProjection();
 }
 
@@ -110,6 +110,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
   hud.resize();
+  cockpit.resize();
   setDash(game.dashVisible);
   if (game.state === 'map') { ui.layoutMap(); ui.drawMap(); }
 });
@@ -645,39 +646,7 @@ function render() {
 
   composer.render();
 
-  if (game.dashVisible && game.target && game.target.alive !== false) renderVDU();
-}
-
-const _sunDir = V(), _side = V();
-function renderVDU() {
-  const el = document.getElementById('vdu');
-  const r = el.getBoundingClientRect();
-  if (r.width < 4 || r.height < 4) return;
-  const t = game.target;
-  const rad = t.radius || 50;
-  _sunDir.copy(game.world.sunPos).sub(t.pos).normalize();
-  const a = performance.now() / 1000 * 0.4;
-  _side.set(Math.cos(a), 0.35, Math.sin(a)).normalize();
-  const dir = _sunDir.multiplyScalar(0.7).add(_side).normalize();
-  tcam.position.copy(t.pos).addScaledVector(dir, rad * (t.isStation ? 2.4 : 3.6));
-  tcam.up.set(0, 1, 0);
-  tcam.lookAt(t.pos);
-  tcam.aspect = r.width / r.height;
-  tcam.updateProjectionMatrix();
-  const x = r.left, y = innerHeight - r.bottom;
-  renderer.setScissorTest(true);
-  renderer.setScissor(x, y, r.width, r.height);
-  renderer.setViewport(x, y, r.width, r.height);
-  renderer.setClearColor(0x03140c, 1);
-  const pv = game.player.obj.visible;
-  game.player.obj.visible = false;
-  game.fx.points.visible = false;
-  renderer.render(scene, tcam);
-  game.fx.points.visible = true;
-  game.player.obj.visible = pv;
-  renderer.setClearColor(0x000000, 1);
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  if (game.dashVisible) cockpit.renderScreens(renderer);
 }
 
 // ---------------------------------------------------------------------------
@@ -809,6 +778,7 @@ function frame(now) {
   game.world.update(dt, camera);
   render();
   hud.draw(dt);
+  if (game.dashVisible) cockpit.draw();
 }
 
 updateProjection();

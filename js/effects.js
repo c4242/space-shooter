@@ -362,7 +362,7 @@ export class WarpTunnel {
       b[i6 + 3] = x; b[i6 + 4] = y; b[i6 + 5] = this.z[i] - len;
       const fade = Math.min(1, -this.z[i] / 300) * Math.min(1, (this.z[i] + 4000) / 800) * k;
       const hue = (i % 7) / 7;
-      c[i6] = (1.2 + hue) * fade; c[i6 + 1] = (1.6 + hue * 0.5) * fade; c[i6 + 2] = 3 * fade;
+      c[i6] = (2.6 + hue * 2) * fade; c[i6 + 1] = (3.4 + hue) * fade; c[i6 + 2] = 6 * fade;
       c[i6 + 3] = 0; c[i6 + 4] = 0.1 * fade; c[i6 + 5] = 0.5 * fade;
     }
     this.attr.needsUpdate = true; this.cattr.needsUpdate = true;

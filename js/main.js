@@ -1324,6 +1324,16 @@ function updateFlare() {
       const miss = Math.sqrt(Math.max(0, oc.lengthSq() - t * t));
       vis = Math.min(vis, THREE.MathUtils.smoothstep(miss, p.radius * 0.995, p.radius * 1.06));
     }
+    // Nearby asteroids can eclipse the star too.
+    if (w.belt && camera.position.distanceTo(w.belt.center) < w.belt.extent + 8000) {
+      for (const r of w.belt.rocks) {
+        const oc = _fo.copy(r.p).sub(camera.position);
+        const t = oc.dot(toSun);
+        if (t < 0 || t > 9000) continue;
+        const miss = Math.sqrt(Math.max(0, oc.lengthSq() - t * t));
+        if (miss < r.r * 1.1) vis = Math.min(vis, THREE.MathUtils.smoothstep(miss, r.r * 0.8, r.r * 1.1));
+      }
+    }
     const sp = w.sunPos.clone().project(camera);
     fu.sun.value.set((sp.x + 1) / 2, (sp.y + 1) / 2);
     const off = Math.hypot(sp.x, sp.y / (innerWidth / innerHeight)) ;

@@ -80,6 +80,14 @@ export class Particles {
     scene.add(this.points);
     this.scene = scene;
     this.waves = [];
+    // A small fixed pool of point lights so explosions light up nearby hulls and rocks
+    // (a fixed count avoids shader recompiles).
+    this.flashes = [];
+    for (let i = 0; i < 3; i++) {
+      const l = new THREE.PointLight(0xffa860, 0, 2500, 2);
+      scene.add(l);
+      this.flashes.push({ l, t: 1, life: 1, peak: 0 });
+    }
     this.debris = [];
     this._v = new THREE.Vector3();
   }
@@ -127,8 +135,16 @@ export class Particles {
     return this._v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
   }
 
+  flash(pos, s = 1) {
+    const f = this.flashes.reduce((a, b) => (b.t / b.life > a.t / a.life ? b : a));
+    f.l.position.copy(pos);
+    f.t = 0; f.life = 0.35 + 0.35 * s; f.peak = 6e5 * s;
+    f.l.color.setRGB(1, 0.62 + Math.random() * 0.1, 0.35);
+  }
+
   explosion(pos, s = 1, baseVel = null) {
     const b = baseVel || new THREE.Vector3();
+    this.flash(pos, s);
     this.shockwave(pos, s, b);
     if (s >= 0.9) this.spawnDebris(pos, s, b);
     const v = this._v;
@@ -173,6 +189,11 @@ export class Particles {
   }
 
   updateExtras(dt) {
+    for (const f of this.flashes) {
+      f.t += dt;
+      const k = Math.max(0, 1 - f.t / f.life);
+      f.l.intensity = f.peak * k * k;
+    }
     for (let i = this.waves.length - 1; i >= 0; i--) {
       const w = this.waves[i];
       w.t += dt;
@@ -301,5 +322,49 @@ export class Dust {
       b[i6 + 3] = p[i3] - sx; b[i6 + 4] = p[i3 + 1] - sy; b[i6 + 5] = p[i3 + 2] - sz;
     }
     this.attr.needsUpdate = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Jump tunnel: streaks of light rushing past the camera while the jump drive runs.
+// ---------------------------------------------------------------------------
+export class WarpTunnel {
+  constructor(scene, n = 700) {
+    this.n = n;
+    this.z = new Float32Array(n); this.r = new Float32Array(n); this.a = new Float32Array(n);
+    for (let i = 0; i < n; i++) { this.z[i] = -Math.random() * 4000; this.r[i] = 25 + Math.pow(Math.random(), 0.6) * 220; this.a[i] = Math.random() * Math.PI * 2; }
+    this.buf = new Float32Array(n * 6);
+    this.cols = new Float32Array(n * 6);
+    const geo = new THREE.BufferGeometry();
+    this.attr = new THREE.BufferAttribute(this.buf, 3).setUsage(THREE.DynamicDrawUsage);
+    this.cattr = new THREE.BufferAttribute(this.cols, 3).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', this.attr);
+    geo.setAttribute('color', this.cattr);
+    this.lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.lines.frustumCulled = false;
+    this.lines.visible = false;
+    this.lines.renderOrder = 6;
+    scene.add(this.lines);
+  }
+  update(dt, cam, k) {
+    this.lines.visible = k > 0.01;
+    if (!this.lines.visible) return;
+    this.lines.position.copy(cam.position);
+    this.lines.quaternion.copy(cam.quaternion);
+    const speed = 900 + 9000 * k, len = 40 + 900 * k * k;
+    const b = this.buf, c = this.cols;
+    for (let i = 0; i < this.n; i++) {
+      this.z[i] += speed * dt;
+      if (this.z[i] > 0) { this.z[i] -= 4000; this.a[i] = Math.random() * Math.PI * 2; }
+      const x = Math.cos(this.a[i] + this.z[i] * 0.0004) * this.r[i], y = Math.sin(this.a[i] + this.z[i] * 0.0004) * this.r[i];
+      const i6 = i * 6;
+      b[i6] = x; b[i6 + 1] = y; b[i6 + 2] = this.z[i];
+      b[i6 + 3] = x; b[i6 + 4] = y; b[i6 + 5] = this.z[i] - len;
+      const fade = Math.min(1, -this.z[i] / 300) * Math.min(1, (this.z[i] + 4000) / 800) * k;
+      const hue = (i % 7) / 7;
+      c[i6] = (2.6 + hue * 2) * fade; c[i6 + 1] = (3.4 + hue) * fade; c[i6 + 2] = 6 * fade;
+      c[i6 + 3] = 0; c[i6 + 4] = 0.1 * fade; c[i6 + 5] = 0.5 * fade;
+    }
+    this.attr.needsUpdate = true; this.cattr.needsUpdate = true;
   }
 }

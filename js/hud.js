@@ -26,6 +26,7 @@ export class Hud {
     this.canvas = document.getElementById('hud');
     this.ctx = this.canvas.getContext('2d');
     this.messages = [];
+    this.cracks = [];
     this.flash = 0;
     this.flashRGB = '255,40,30';
     this.viewH = innerHeight;
@@ -86,7 +87,7 @@ export class Hud {
     ctx.font = '13px "Share Tech Mono", monospace';
     ctx.textBaseline = 'alphabetic';
     const p = g.player;
-    const flying = ['flight', 'map', 'trade', 'paused', 'docking'].includes(g.state);
+    const flying = ['flight', 'map', 'trade', 'paused'].includes(g.state);
 
     if (g.state === 'autopilot') this.drawAutopilot(ctx);
     if (p && p.alive && flying) {
@@ -95,10 +96,12 @@ export class Hud {
       this.drawTarget(ctx);
       this.drawVelocity(ctx);
       this.drawCrosshair(ctx);
-      if (g.mouseFlight && g.mouse.inside && g.state === 'flight') this.drawMouse(ctx);
+      if (g.mouseFlight && !g.mouseFree && g.mouse.inside && g.state === 'flight') this.drawMouse(ctx);
+      if ((g.mouseFree || !g.mouseFlight) && !g.touchMode && g.state === 'flight' && g.mouse.inside) this.drawPickHint(ctx);
       if (p.gAccel > 15) this.drawGravity(ctx, p.gAccel);
     }
-    this.drawMessages(ctx);
+    if (g.dashVisible && this.cracks.length) this.drawCracks(ctx);
+    if (g.state !== 'docking') this.drawMessages(ctx);
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(${this.flashRGB},${Math.min(0.45, this.flash)})`;
       ctx.fillRect(0, 0, W, H);
@@ -135,6 +138,47 @@ export class Hud {
     }
   }
 
+  // Canopy damage: a branching crack radiating from an impact point (stored in screen fractions).
+  addCrack() {
+    if (this.cracks.length >= 10) return;
+    let fx, fy;
+    do { fx = 0.12 + Math.random() * 0.76; fy = 0.08 + Math.random() * 0.5; } while (Math.abs(fx - 0.5) < 0.12 && Math.abs(fy - 0.3) < 0.12);
+    const lines = [];
+    const branch = (x, y, a, len, depth) => {
+      const pts = [[x, y]];
+      let cx = x, cy = y;
+      const n = 4 + (Math.random() * 4 | 0);
+      for (let i = 0; i < n; i++) {
+        a += (Math.random() - 0.5) * 0.7;
+        cx += Math.cos(a) * len / n; cy += Math.sin(a) * len / n;
+        pts.push([cx, cy]);
+        if (depth < 2 && Math.random() < 0.25) branch(cx, cy, a + (Math.random() < 0.5 ? 0.7 : -0.7), len * 0.45, depth + 1);
+      }
+      lines.push({ pts, w: depth ? 0.7 : 1.2 });
+    };
+    const rays = 4 + (Math.random() * 4 | 0);
+    for (let i = 0; i < rays; i++) branch(0, 0, i / rays * Math.PI * 2 + Math.random() * 0.5, 0.05 + Math.random() * 0.13, 0);
+    this.cracks.push({ fx, fy, lines });
+  }
+
+  drawCracks(ctx) {
+    const S = Math.min(this.W, this.viewH);
+    for (const c of this.cracks) {
+      const ox = c.fx * this.W, oy = c.fy * this.viewH;
+      ctx.fillStyle = 'rgba(210,225,240,0.28)';
+      ctx.beginPath(); ctx.arc(ox, oy, 3, 0, Math.PI * 2); ctx.fill();
+      for (const pass of [[4, 'rgba(0,0,0,0.25)'], [1, 'rgba(225,238,255,0.55)']]) {
+        ctx.strokeStyle = pass[1];
+        for (const l of c.lines) {
+          ctx.lineWidth = l.w * pass[0];
+          ctx.beginPath();
+          l.pts.forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](ox + x * S, oy + y * S));
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
   drawCrosshair(ctx) {
     const g = this.g;
     const tags = [];
@@ -155,6 +199,20 @@ export class Hud {
     ctx.stroke();
     ctx.fillStyle = `rgba(${C.hud},0.9)`;
     ctx.fillRect(cx - 1, cy - 1, 2, 2);
+  }
+
+  // With the cursor free, highlight whatever a click would target.
+  drawPickHint(ctx) {
+    const g = this.g, t = g.pickHover;
+    if (!t || t === g.target) return;
+    const pr = this.project(t.pos);
+    if (!pr.on) return;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeRect(pr.x - 14, pr.y - 14, 28, 28);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.textAlign = 'center';
+    ctx.fillText(`click: target ${t.name}`, pr.x, pr.y + 28);
   }
 
   drawMouse(ctx) {

@@ -1511,11 +1511,12 @@ touch = initTouch(game, code => {
 const PREVENT = new Set(['AltLeft', 'AltRight', 'F2', 'Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Enter']);
 addEventListener('keydown', e => {
   if (PREVENT.has(e.code)) e.preventDefault();
+  if (e.code.startsWith('Alt')) game.mouseFree = true;
   audio.init();
   keys[e.code] = true;
   if (!e.repeat) onKey(e.code);
 });
-addEventListener('keyup', e => { keys[e.code] = false; if (e.code.startsWith('Alt')) e.preventDefault(); });
+addEventListener('keyup', e => { keys[e.code] = false; if (e.code.startsWith('Alt')) { e.preventDefault(); game.mouseFree = false; } });
 addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
   game.mouse.left = false;
@@ -1537,16 +1538,18 @@ function pickAt(x, y) {
   }
   return best;
 }
+game.pickAt = pickAt;
 addEventListener('mousedown', e => {
   if (game.state !== 'flight' || game.touchMode) return;
-  const free = game.mouseFree || !game.mouseFlight;
+  game.mouseFree = e.altKey;
+  const free = e.altKey || !game.mouseFlight;
   if (e.button === 0 && free) {
     const t = pickAt(e.clientX, e.clientY);
     if (t) { game.target = t; game.player.lockTime = 0; audio.blip(); return; }
-    if (game.mouseFree) return; // Alt held: clicking empty space does nothing
+    if (e.altKey) return; // Alt held: clicking empty space does nothing
   }
   if (e.button === 0) game.mouse.left = true;
-  if (e.button === 2 && !game.mouseFree) playerMissile();
+  if (e.button === 2 && !e.altKey) playerMissile();
 });
 addEventListener('mouseup', e => { if (e.button === 0) game.mouse.left = false; });
 addEventListener('contextmenu', e => e.preventDefault());

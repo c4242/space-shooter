@@ -139,3 +139,13 @@ body.flying { cursor: none; }
 @media (max-width: 560px) { .settings { grid-template-columns: 1fr; } .settings .dim { grid-column: span 1; } }
 
 #menu.dim-bg { background: rgba(2, 5, 10, 0.86); }
+
+/* Menus must stay usable on short screens: scroll instead of clipping, centre when they fit. */
+.overlay { overflow-y: auto; }
+#menu { align-items: flex-start; }
+#menu .menu-box { margin: auto; }
+@media (max-height: 560px) {
+  .menu-box h1 { font-size: clamp(28px, 7vh, 48px); letter-spacing: 6px; }
+  .controls { font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
+  .tagline { margin: 4px 0 10px; }
+}

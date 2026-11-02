@@ -3,7 +3,6 @@ import { radialTexture } from './world.js';
 import { audio } from './audio.js';
 
 export const LASER_SPEED = 2600;
-export const LOCK_TIME = 1.2;
 
 const V = () => new THREE.Vector3();
 const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _g = V();
@@ -81,10 +80,10 @@ function wingGeo(pts, thick) {
   return geo;
 }
 
-export function buildPlayerModel() {
+export function buildPlayerModel(hullColor = 0x9ea9b8, accentColor = 0x2a6fd6) {
   const g = new THREE.Group();
-  const hull = mat(0x9ea9b8), dark = mat(0x2b3038, { roughness: 0.65 });
-  const accent = mat(0x2a6fd6, { metalness: 0.35, roughness: 0.35 });
+  const hull = mat(hullColor), dark = mat(0x2b3038, { roughness: 0.65 });
+  const accent = mat(accentColor, { metalness: 0.35, roughness: 0.35 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x0b2333, emissive: 0x0f5577, emissiveIntensity: 0.7, metalness: 0.9, roughness: 0.08 });
   part(g, new THREE.CylinderGeometry(1.1, 2.1, 13, 12), hull, [0, 0, 0.5], [-Math.PI / 2, 0, 0]);
   part(g, new THREE.ConeGeometry(1.1, 5, 12), hull, [0, 0, -8.5], [-Math.PI / 2, 0, 0]);
@@ -189,9 +188,10 @@ export function applyUpgrades(p, up) {
   p.shieldRegen = 9 + 3 * up.shields;
   p.armorMax = 160 + 60 * up.armor;
   p.armor = p.armorMax * armorFrac;
-  p.maxSpeed = 420 + 40 * up.engine;
-  p.abSpeed = 950 + 80 * up.engine;
-  p.accel = 220 + 25 * up.engine;
+  // Newtonian drive: accelerations in m/s².
+  p.thrust = 110 + 14 * up.engine;
+  p.abThrust = 230 + 30 * up.engine;
+  p.rcs = 34 + 5 * up.engine;
   const k = 1 + 0.08 * up.engine;
   p.turnRates = [1.35 * k, 1.1 * k, 2.3 * k];
   p.shieldF = Math.min(p.shieldF ?? p.shieldMax, p.shieldMax);
@@ -200,84 +200,120 @@ export function applyUpgrades(p, up) {
 export const holdFor = up => 25 + 15 * up.hold;
 
 // ---------------------------------------------------------------------------
+// Missiles
+// ---------------------------------------------------------------------------
+
+export const MISSILES = {
+  dart: { name: 'Dart', label: 'Heat-seeker', lock: 0, accel: 950, turn: 3.2, burn: 4, life: 8, dmg: 45, cost: 90, slots: 1, size: 0.8, color: [3.4, 3, 1.4] },
+  seeker: { name: 'Seeker', label: 'Radar seeker', lock: 1.2, accel: 650, turn: 2.4, burn: 6, life: 12, dmg: 85, cost: 200, slots: 1, size: 1, color: [3, 2.4, 1.2] },
+  torpedo: { name: 'Torpedo', label: 'Heavy torpedo', lock: 3, accel: 220, turn: 0.9, burn: 16, life: 24, dmg: 320, cost: 650, slots: 2, size: 2.2, color: [1.2, 2.2, 4] },
+};
+export const MISSILE_SLOTS = 8;
+export const missileSlotsUsed = p => Object.entries(p.ammo).reduce((a, [k, n]) => a + n * MISSILES[k].slots, 0);
+export const lockTimeFor = p => (p.isPlayer ? MISSILES[p.missileType].lock : MISSILES.seeker.lock);
+
+// ---------------------------------------------------------------------------
+// Extra models
+// ---------------------------------------------------------------------------
+
+export function buildPoliceModel() {
+  const m = buildPlayerModel(0x2c4370, 0xe8eef8);
+  m.lightbar = [glow(m.group, new THREE.Color(4, 0.4, 0.3), [-0.7, 1.9, -1.5], 2.2), glow(m.group, new THREE.Color(0.4, 0.9, 4), [0.7, 1.9, -1.5], 2.2)];
+  m.engineColor = [0.6, 1.4, 3];
+  return m;
+}
+export function buildWarlordModel() {
+  const m = buildMarauderModel();
+  const outer = new THREE.Group();
+  m.group.scale.setScalar(1.4);
+  outer.add(m.group);
+  part(outer, new THREE.BoxGeometry(6, 2, 14), mat(0x5a0e0a, { emissive: 0x400602, emissiveIntensity: 1.5 }), [0, 4.6, 2]);
+  return { group: outer, glows: m.glows, gunPorts: m.gunPorts.map(v => v.clone().multiplyScalar(1.4)), exhaust: m.exhaust.clone().multiplyScalar(1.4), engineColor: m.engineColor };
+}
+
+// ---------------------------------------------------------------------------
 // Ship
 // ---------------------------------------------------------------------------
 
 const CALLSIGNS = ['Vex', 'Grisk', 'Mordu', 'Slade', 'Hask', 'Rook', 'Jagg', 'Ossa', 'Brine', 'Kord', 'Sill', 'Tarn'];
 const HAULERS = ['Kesra', 'Orrin', 'Bellwether', 'Long Haul', 'Patience', 'Marigold', 'Ostrava', 'Nine Lives'];
+const PATROLS = ['Lance', 'Warden', 'Aegis', 'Bastion', 'Sentry', 'Vigil'];
 const pick = a => a[(Math.random() * a.length) | 0];
-const BUILDERS = { player: buildPlayerModel, pirate: buildPirateModel, marauder: buildMarauderModel, freighter: buildFreighterModel };
+const BUILDERS = {
+  player: () => buildPlayerModel(), pirate: buildPirateModel, marauder: buildMarauderModel, warlord: buildWarlordModel,
+  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel,
+};
+const STATS = {
+  pirate: () => ({ name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER', team: 'pirate', thrust: 105, abThrust: 180, rcs: 45, cruise: 380, radius: 10, shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5, missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25, bounty: 250 + ((Math.random() * 6) | 0) * 25 }),
+  marauder: () => ({ name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER', team: 'pirate', thrust: 75, abThrust: 130, rcs: 32, cruise: 320, radius: 16, shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4, missiles: 2, turn: 0.8 + Math.random() * 0.15, bounty: 650 + ((Math.random() * 6) | 0) * 25 }),
+  warlord: () => ({ name: "Krell's Talon", cls: 'ASHFANG WARLORD', team: 'pirate', thrust: 70, abThrust: 120, rcs: 30, cruise: 300, radius: 24, shieldMax: 260, armorMax: 520, gunDmg: 9, fireRate: 0.16, shotCost: 3, missiles: 6, turn: 0.7, bounty: 5000 }),
+  smuggler: () => ({ name: 'Ashfang Hauler', cls: 'ASHFANG HAULER', team: 'pirate', thrust: 30, abThrust: 25, rcs: 12, cruise: 200, radius: 34, shieldMax: 60, armorMax: 220, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, bounty: 800, hauler: true }),
+  freighter: () => ({ name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER', team: 'civ', thrust: 28, abThrust: 22, rcs: 12, cruise: 190, radius: 34, shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, hauler: true }),
+  police: () => ({ name: `Patrol ${pick(PATROLS)}-${1 + ((Math.random() * 9) | 0)}`, cls: 'AUTHORITY PATROL', team: 'police', thrust: 120, abThrust: 200, rcs: 50, cruise: 420, radius: 11, shieldMax: 110, armorMax: 120, gunDmg: 6, fireRate: 0.2, shotCost: 4, missiles: 1, turn: 1.25 }),
+};
 
 export class Ship {
   constructor(game, kind) {
     this.kind = kind;
     this.isPlayer = kind === 'player';
-    this.team = this.isPlayer ? 'player' : kind === 'freighter' ? 'civ' : 'pirate';
     const m = BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
-    this.exhaust = m.exhaust; this.engineColor = m.engineColor;
-    this.vel = V(); this.gravVel = V(); this.angVel = V();
-    this.speed = 0; this.setSpeed = 0; this.afterburner = false; this.gAccel = 0;
+    this.exhaust = m.exhaust; this.engineColor = m.engineColor; this.lightbar = m.lightbar || null;
+    this.vel = V(); this.angVel = V(); this.rcsCmd = V();
+    this.speed = 0; this.throttle = 0; this.afterburner = false; this.retro = false; this.gAccel = 0;
     this.alive = true; this.lastHit = -10; this.gunCd = 0; this.energy = 100;
-    this.lockTime = 0; this.recentHits = 0; this.trailT = 0; this.smokeT = 0; this.retarget = 0;
+    this.lockTime = 0; this.recentHits = 0; this.trailT = 0; this.smokeT = 0; this.retarget = 0; this.angryUntil = -1;
     if (this.isPlayer) {
-      Object.assign(this, { name: 'You', radius: 11, shotCost: 4.5, missiles: 4, maxMissiles: 6, decoys: 8, maxDecoys: 10, abFuel: 100 });
+      Object.assign(this, {
+        name: 'You', team: 'player', radius: 11, shotCost: 4.5, decoys: 8, maxDecoys: 10, abFuel: 100,
+        ammo: { dart: 2, seeker: 4, torpedo: 0 }, missileType: 'seeker',
+      });
       applyUpgrades(this, game.upgrades);
       this.armor = this.armorMax;
-    } else if (kind === 'pirate') {
-      Object.assign(this, {
-        name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER',
-        maxSpeed: 360, abSpeed: 700, accel: 200, radius: 10,
-        shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5,
-        missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25,
-        bounty: 250 + ((Math.random() * 6) | 0) * 25,
-      });
-    } else if (kind === 'marauder') {
-      Object.assign(this, {
-        name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER',
-        maxSpeed: 300, abSpeed: 600, accel: 160, radius: 16,
-        shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4,
-        missiles: 2, turn: 0.8 + Math.random() * 0.15,
-        bounty: 650 + ((Math.random() * 6) | 0) * 25,
-      });
     } else {
-      Object.assign(this, {
-        name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER',
-        maxSpeed: 190, abSpeed: 280, accel: 60, radius: 34,
-        shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35,
-      });
-    }
-    if (!this.isPlayer) {
-      Object.assign(this, { aiState: 'attack', aiTimer: 0, evadeDir: V(), aiTarget: null });
+      Object.assign(this, STATS[kind](), { aiState: 'attack', aiTimer: 0, evadeDir: V(), aiTarget: null });
       this.shieldF = this.shieldR = this.shieldMax;
       this.armor = this.armorMax;
     }
     game.scene.add(this.obj);
   }
   get pos() { return this.obj.position; }
-  totalVel(out = V()) { return out.copy(this.vel).add(this.gravVel); }
+  totalVel(out = V()) { return out.copy(this.vel); }
 }
 
-// Arcade "space-sim" flight model: velocity swings toward the nose, plus
-// a separate inertial gravity term from the black hole that engines must fight.
-export function updateShipMotion(s, dt, world) {
-  const target = s.afterburner ? s.abSpeed : s.setSpeed;
-  const acc = s.afterburner ? s.accel * 2.4 : s.accel;
-  s.speed += THREE.MathUtils.clamp(target - s.speed, -acc * 1.4 * dt, acc * dt);
-  const f = forwardOf(s.obj, _a);
-  s.vel.lerp(f.multiplyScalar(s.speed), 1 - Math.exp(-3.5 * dt));
+// Who shoots at whom.
+export function hostileTo(game, a, b) {
+  if (!b || !b.alive || a === b) return false;
+  if (a.team === 'pirate') return b.team === 'player' || b.team === 'civ' || b.team === 'police';
+  if (a.team === 'police') return b.team === 'pirate' || (b.team === 'player' && (game.isWanted() || a.angryUntil > game.time));
+  return false;
+}
 
-  const bh = world.blackHole;
-  const d = _b.subVectors(bh.pos, s.obj.position);
-  const r = d.length();
+// Newtonian flight: main engine pushes along the nose, manoeuvring thrusters (RCS)
+// push in any direction with a small acceleration, gravity adds to velocity.
+// Nothing ever slows a ship down except thrust.
+export function updateShipMotion(s, dt, world) {
+  const f = forwardOf(s.obj, _a);
+  const acc = _b.set(0, 0, 0);
+  const main = s.throttle * s.thrust + (s.afterburner ? s.abThrust : 0) - (s.retro ? s.thrust * 0.5 : 0);
+  acc.addScaledVector(f, main);
+  const rl = s.rcsCmd.length();
+  if (rl > 1e-6) acc.addScaledVector(s.rcsCmd, Math.min(1, s.rcs / rl));
   s.gAccel = 0;
-  if (r < 90000) {
-    const a = bh.GM / (r * r);
-    s.gAccel = a;
-    s.gravVel.addScaledVector(d.divideScalar(r), a * dt);
+  const bh = world.blackHole;
+  if (bh) {
+    const d = _c.subVectors(bh.pos, s.obj.position);
+    const r = d.length();
+    if (r < 120000) {
+      const a = bh.GM / (r * r);
+      s.gAccel = a;
+      acc.addScaledVector(d, a / r);
+    }
   }
-  s.gravVel.multiplyScalar(Math.exp(-0.5 * dt));
-  s.obj.position.addScaledVector(s.vel, dt).addScaledVector(s.gravVel, dt);
+  s.vel.addScaledVector(acc, dt);
+  s.obj.position.addScaledVector(s.vel, dt);
+  s.speed = s.vel.length();
+  s.mainThrust = Math.abs(main) / (s.thrust || 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -285,9 +321,12 @@ export function updateShipMotion(s, dt, world) {
 // ---------------------------------------------------------------------------
 
 const LASER_GEO = new THREE.CylinderGeometry(0.32, 0.32, 24, 6, 1, true);
+const lmat = c => new THREE.MeshBasicMaterial({ color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
 const LASER_MATS = {
-  player: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.6, 3.5, 1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
-  pirate: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.8, 0.7, 0.3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+  player: lmat(new THREE.Color(0.6, 3.5, 1.6)),
+  pirate: lmat(new THREE.Color(3.8, 0.7, 0.3)),
+  police: lmat(new THREE.Color(0.6, 1.4, 4)),
+  civ: lmat(new THREE.Color(3, 3, 1)),
 };
 
 export function fireLasers(game, s) {
@@ -303,7 +342,7 @@ export function fireLasers(game, s) {
     mesh.quaternion.setFromUnitVectors(Y_AXIS, dir);
     game.scene.add(mesh);
     game.lasers.push({ mesh, vel: dir.multiplyScalar(LASER_SPEED).add(tv), life: 1.1, owner: s, team: s.team, dmg: s.gunDmg });
-    game.fx.emit(p, tv, { life: 0.08, size: 4, sizeEnd: 1, color: s.isPlayer ? [1, 4, 2] : [4, 1, 0.4] });
+    game.fx.emit(p, tv, { life: 0.08, size: 4, sizeEnd: 1, color: s.isPlayer ? [1, 4, 2] : s.team === 'police' ? [1, 2, 4] : [4, 1, 0.4] });
   }
   s.energy -= s.shotCost;
   s.gunCd = s.fireRate;
@@ -322,11 +361,11 @@ export function updateLasers(game, dt) {
     let dead = L.life <= 0;
     if (!dead) {
       for (const s of game.ships) {
-        if (!s.alive || s.team === L.team) continue;
+        if (!s.alive || s === L.owner || s.team === L.team) continue;
         if (segSphere(p0, p1, s.pos, s.radius)) { hitShipWith(game, s, L.dmg, p0, L.owner); dead = true; break; }
       }
     }
-    if (!dead && p1.distanceToSquared(belt.center) < belt.extent * belt.extent) {
+    if (!dead && belt && p1.distanceToSquared(belt.center) < belt.extent * belt.extent) {
       for (const r of belt.rocks) {
         if (segSphere(p0, p1, r.p, r.r)) { game.fx.sparks(p1, [2.5, 1.6, 0.8], 6); dead = true; break; }
       }
@@ -338,22 +377,41 @@ export function updateLasers(game, dt) {
 const MSL_GEO = new THREE.CylinderGeometry(0.35, 0.35, 4.5, 8).rotateX(-Math.PI / 2);
 const MSL_MAT = mat(0xd8dde4, { metalness: 0.3 });
 
-export function fireMissile(game, s, target) {
-  if (s.missiles <= 0) return false;
+// Heat-seekers pick the hottest engine in front of the launcher; no lock needed.
+export function heatTarget(game, s) {
+  const f = forwardOf(s.obj, V());
+  let best = null, bs = Infinity;
+  for (const o of game.ships) {
+    if (!o.alive || o === s || o.team === s.team || o.team === 'civ') continue;
+    if (s.isPlayer && o.team === 'police' && !game.isWanted()) continue;
+    const to = V().subVectors(o.pos, s.pos);
+    const d = to.length();
+    const ang = f.angleTo(to);
+    if (d < 4500 && ang < 0.5) { const score = d * (1 + ang * 2); if (score < bs) { bs = score; best = o; } }
+  }
+  return best;
+}
+
+export function fireMissile(game, s, target, type = 'seeker') {
+  const T = MISSILES[type];
+  if (s.isPlayer) { if (!s.ammo[type]) return false; s.ammo[type]--; }
+  else { if (s.missiles <= 0) return false; s.missiles--; }
   const mesh = new THREE.Group();
-  mesh.add(new THREE.Mesh(MSL_GEO, MSL_MAT));
-  glow(mesh, s.isPlayer ? new THREE.Color(3, 2.4, 1.2) : new THREE.Color(3.5, 1.2, 0.4), [0, 0, 2.8], 3.5);
+  const body = new THREE.Mesh(MSL_GEO, MSL_MAT);
+  body.scale.setScalar(T.size);
+  mesh.add(body);
+  glow(mesh, new THREE.Color(...(s.isPlayer ? T.color : [3.5, 1.2, 0.4])), [0, 0, 2.8 * T.size], 3.5 * T.size);
   const f = forwardOf(s.obj, V());
   mesh.position.copy(s.pos).addScaledVector(upOf(s.obj, V()), -2.5).addScaledVector(f, s.radius * 0.6);
   mesh.quaternion.copy(s.obj.quaternion);
   game.scene.add(mesh);
   game.missiles.push({
-    mesh, owner: s, team: s.team, target,
-    speed: Math.max(200, s.speed + 60), maxSpeed: s.isPlayer ? 1150 : 830, turn: s.isPlayer ? 2.4 : 1.6,
-    life: 14, armed: 0.35, dmg: s.isPlayer ? 85 : 55, trail: 0,
+    mesh, owner: s, team: s.team, target, type,
+    vel: s.vel.clone().addScaledVector(f, 60),
+    accel: s.isPlayer ? T.accel : 520, turn: s.isPlayer ? T.turn : 1.7, burn: T.burn,
+    life: T.life, armed: 0.35, dmg: s.isPlayer ? T.dmg : 55, trail: 0, size: T.size,
   });
-  s.missiles--;
-  audio.missile(s.isPlayer ? 1 : Math.max(0.2, volAt(game, s.pos)));
+  audio.missile(s.isPlayer ? (type === 'torpedo' ? 1.4 : 1) : Math.max(0.2, volAt(game, s.pos)));
   return true;
 }
 
@@ -361,44 +419,49 @@ export function updateMissiles(game, dt) {
   for (let i = game.missiles.length - 1; i >= 0; i--) {
     const m = game.missiles[i];
     m.life -= dt; m.armed -= dt;
-    m.speed = Math.min(m.maxSpeed, m.speed + 700 * dt);
     const p0 = _a.copy(m.mesh.position);
     const t = m.target;
-    let tp = null, tr = 0;
+    let tp = null, tv = null, tr = 0;
     if (t) {
-      if (t.isDecoy) { if (t.life > 0) { tp = t.pos; tr = 40; } }
-      else if (t.alive) {
-        tp = _b.copy(t.pos);
-        const d = tp.distanceTo(p0);
-        tp.addScaledVector(t.totalVel(_c), Math.min(2, d / m.speed) * 0.6);
-        tr = t.radius + 16;
-      }
+      if (t.isDecoy) { if (t.life > 0) { tp = t.pos; tv = t.vel; tr = 40; } }
+      else if (t.alive) { tp = t.pos; tv = t.vel; tr = t.radius + 18; }
     }
-    if (tp) turnToward(m.mesh, _d.subVectors(tp, p0).normalize(), m.turn * dt);
-    const f = forwardOf(m.mesh, _c);
-    m.mesh.position.addScaledVector(f, m.speed * dt);
+    if (tp) {
+      // Guidance: thrust toward the target while cancelling drift across the line of sight.
+      const los = _b.subVectors(tp, p0);
+      const dist = los.length();
+      los.divideScalar(dist || 1);
+      const vRel = _c.subVectors(m.vel, tv);
+      const vPerp = vRel.addScaledVector(los, -vRel.dot(los));
+      const dir = _d.copy(los).multiplyScalar(m.accel).addScaledVector(vPerp, -2.5).normalize();
+      turnToward(m.mesh, dir, m.turn * dt);
+    }
+    const f = forwardOf(m.mesh, _e);
+    if (m.burn > 0) { m.vel.addScaledVector(f, m.accel * dt); m.burn -= dt; }
+    m.mesh.position.addScaledVector(m.vel, dt);
 
     m.trail -= dt;
-    if (m.trail <= 0) {
+    if (m.trail <= 0 && m.burn > 0) {
       m.trail = 0.016;
-      const back = _e.copy(m.mesh.position).addScaledVector(f, -3);
-      game.fx.emit(back, _f.copy(f).multiplyScalar(-40), { life: 0.9, size: 2.5, sizeEnd: 9, color: [0.5, 0.48, 0.45], colorEnd: [0.08, 0.08, 0.08], alpha: 0.5 });
-      game.fx.emit(back, null, { life: 0.12, size: 3, sizeEnd: 1, color: [4, 2.4, 0.8] });
+      const back = _f.copy(m.mesh.position).addScaledVector(f, -3 * m.size);
+      game.fx.emit(back, m.vel.clone().addScaledVector(f, -60), { life: 0.9, size: 2.5 * m.size, sizeEnd: 9 * m.size, color: [0.5, 0.48, 0.45], colorEnd: [0.08, 0.08, 0.08], alpha: 0.5 });
+      game.fx.emit(back, m.vel, { life: 0.12, size: 3 * m.size, sizeEnd: 1, color: [4, 2.4, 0.8] });
     }
 
     let boom = m.life <= 0, victim = null;
+    const p1 = m.mesh.position;
     if (!boom && m.armed <= 0) {
-      if (t && !t.isDecoy && t.alive && segSphere(p0, m.mesh.position, t.pos, tr)) { boom = true; victim = t; }
-      else if (t && t.isDecoy && tp && segSphere(p0, m.mesh.position, t.pos, tr)) boom = true;
+      if (t && !t.isDecoy && t.alive && (segSphere(p0, p1, t.pos, tr) || p1.distanceTo(t.pos) < tr)) { boom = true; victim = t; }
+      else if (t && t.isDecoy && tp && segSphere(p0, p1, t.pos, tr)) boom = true;
       else {
         for (const s of game.ships) {
-          if (s.alive && s.team !== m.team && segSphere(p0, m.mesh.position, s.pos, s.radius + 6)) { boom = true; victim = s; break; }
+          if (s.alive && s !== m.owner && s.team !== m.team && segSphere(p0, p1, s.pos, s.radius + 6)) { boom = true; victim = s; break; }
         }
       }
     }
     if (boom) {
-      game.fx.explosion(m.mesh.position, 0.55);
-      audio.explosion(volAt(game, m.mesh.position) * 0.7, false);
+      game.fx.explosion(p1, m.type === 'torpedo' ? 1.2 : 0.55);
+      audio.explosion(volAt(game, p1) * (m.type === 'torpedo' ? 1 : 0.7), m.type === 'torpedo');
       if (victim) hitShipWith(game, victim, m.dmg, p0, m.owner, true);
       game.scene.remove(m.mesh);
       game.missiles.splice(i, 1);
@@ -411,7 +474,7 @@ export function launchDecoy(game) {
   if (p.decoys <= 0) return false;
   p.decoys--;
   const f = forwardOf(p.obj, V());
-  const d = { isDecoy: true, pos: p.pos.clone().addScaledVector(f, -20), vel: f.clone().multiplyScalar(-150).add(p.totalVel(V()).multiplyScalar(0.5)), life: 4 };
+  const d = { isDecoy: true, pos: p.pos.clone().addScaledVector(f, -20), vel: p.vel.clone().addScaledVector(f, -150), life: 4 };
   game.decoys.push(d);
   for (const m of game.missiles) if (m.target === p && Math.random() < 0.65) m.target = d;
   audio.decoy();
@@ -423,8 +486,7 @@ export function updateDecoys(game, dt) {
     const d = game.decoys[i];
     d.life -= dt;
     d.pos.addScaledVector(d.vel, dt);
-    d.vel.multiplyScalar(Math.exp(-0.6 * dt));
-    _a.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(60);
+    _a.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(60).add(d.vel);
     game.fx.emit(d.pos, _a, { life: 0.5, size: 6, sizeEnd: 2, color: [4, 3.5, 2.5] });
     if (d.life <= 0) game.decoys.splice(i, 1);
   }
@@ -454,7 +516,9 @@ export function hitShipWith(game, s, dmg, fromPos, src, big = false) {
   else {
     s.recentHits += 1;
     if (src && src.isPlayer) audio.hitConfirm();
-    if (s.team === 'civ' && game.onCivHit) game.onCivHit(s, src);
+    if (src && (s.team === 'police' || s.team === 'pirate')) { s.aiTarget = src; s.retarget = 4; }
+    if (s.team === 'police' && src) s.angryUntil = game.time + 25;
+    if (game.onNpcHit) game.onNpcHit(s, src);
   }
   if (r.dead && s.alive) destroyShip(game, s, src);
 }
@@ -462,11 +526,11 @@ export function hitShipWith(game, s, dmg, fromPos, src, big = false) {
 export function destroyShip(game, s, killer) {
   s.alive = false;
   s.armor = 0;
-  game.fx.explosion(s.pos, s.isPlayer ? 1.6 : 1.1, s.totalVel(V()).multiplyScalar(0.3));
+  game.fx.explosion(s.pos, s.isPlayer ? 1.6 : s.radius > 20 ? 2 : 1.1, s.totalVel(V()));
   audio.explosion(s.isPlayer ? 1 : Math.max(0.15, volAt(game, s.pos)), true);
   if (s.isPlayer) {
     s.obj.visible = false;
-    game.onPlayerDestroyed('Your fighter was torn apart by Ashfang guns.');
+    game.onPlayerDestroyed(killer && killer.team === 'police' ? 'Authority patrol craft destroyed your fighter.' : 'Your fighter was torn apart in combat.');
   } else {
     game.scene.remove(s.obj);
     game.onShipDestroyed(s, killer);
@@ -474,79 +538,96 @@ export function destroyShip(game, s, killer) {
 }
 
 // ---------------------------------------------------------------------------
-// Pirate AI
+// AI (all Newtonian: ships steer by choosing a desired velocity, then firing
+// the main engine when the nose points the right way and RCS for the rest)
 // ---------------------------------------------------------------------------
 
-function updateFreighterAI(s, game, dt) {
+function steer(s, vd, dt, aim) {
+  const dv = _c.subVectors(vd, s.vel);
+  const dvl = dv.length();
+  const f = forwardOf(s.obj, _d);
+  const point = aim || (dvl > 20 ? _e.copy(dv).divideScalar(dvl) : f);
+  turnToward(s.obj, point, s.turn * dt);
+  const along = dvl > 1 ? f.dot(dv) / dvl : 0;
+  s.throttle = along > 0.5 && dvl > 10 ? Math.min(1, dvl / s.thrust) * along : 0;
+  s.afterburner = along > 0.9 && dvl > 350;
+  s.retro = false;
+  s.rcsCmd.copy(dv).multiplyScalar(3);
+}
+
+function haulerAI(s, game, dt) {
   s.recentHits = Math.max(0, s.recentHits - dt * 0.25);
-  const dest = s.dest;
-  const to = _c.subVectors(dest.pos, s.pos);
+  const to = _b.subVectors(s.dest.pos, s.pos);
   const d = to.length();
-  s.setSpeed = s.maxSpeed;
-  s.afterburner = s.recentHits > 0.5;
-  turnToward(s.obj, to.divideScalar(d || 1), s.turn * dt);
+  const v = Math.min(s.cruise * (s.recentHits > 0.5 ? 1.5 : 1), Math.sqrt(2 * s.thrust * 0.5 * d) + 20);
+  steer(s, to.multiplyScalar(v / (d || 1)), dt, null);
+  if (s.recentHits > 0.5) s.afterburner = true;
   if (d < 1400) { s.alive = false; s.docked = true; game.scene.remove(s.obj); }
 }
 
 export function updateAI(s, game, dt) {
-  if (s.kind === 'freighter') return updateFreighterAI(s, game, dt);
-  // Pick a victim every few seconds: the player is preferred, nearby freighters are fair game.
-  s.retarget -= dt;
-  if (s.retarget <= 0 || !s.aiTarget || !s.aiTarget.alive) {
-    s.retarget = 3 + Math.random() * 2;
-    let best = game.player && game.player.alive ? game.player : null;
-    let bd = best ? best.pos.distanceTo(s.pos) * 0.7 : Infinity;
-    for (const o of game.ships) {
-      if (!o.alive || o.team !== 'civ') continue;
-      const d = o.pos.distanceTo(s.pos);
-      if (d < bd && d < 9000) { bd = d; best = o; }
-    }
-    s.aiTarget = best;
-  }
-  const p = s.aiTarget || game.player;
-  const pos = s.pos;
-  const bh = game.world.blackHole;
-  const fromBH = _a.subVectors(pos, bh.pos);
-  const bhd = fromBH.length();
-  const desired = _b;
-  s.afterburner = false;
+  s.rcsCmd.set(0, 0, 0);
+  if (s.hauler) return haulerAI(s, game, dt);
   s.gunCd -= dt;
   s.energy = Math.min(100, s.energy + 18 * dt);
   s.recentHits = Math.max(0, s.recentHits - dt * 0.5);
 
-  if (bhd < 15000) {
-    desired.copy(fromBH).normalize();
-    s.setSpeed = s.maxSpeed;
-    s.afterburner = bhd < 9000;
-  } else if (!p.alive || game.state !== 'flight') {
-    forwardOf(s.obj, desired);
-    s.setSpeed = s.maxSpeed * 0.6;
-  } else {
-    const toP = _c.subVectors(p.pos, pos);
-    const dist = toP.length();
-    if (s.aiState === 'evade') {
-      s.aiTimer -= dt;
-      desired.copy(s.evadeDir);
-      s.setSpeed = s.maxSpeed;
-      s.afterburner = s.aiTimer > 0.8;
-      if (s.aiTimer <= 0) s.aiState = 'attack';
-    } else {
-      desired.copy(p.pos).addScaledVector(p.totalVel(_d), dist / LASER_SPEED).sub(pos).normalize();
-      s.setSpeed = dist > 2500 ? s.maxSpeed : dist > 700 ? s.maxSpeed * 0.8 : s.maxSpeed * 0.55;
-      s.afterburner = dist > 6000;
-      const f = forwardOf(s.obj, _d);
-      if (dist < 2600 && f.angleTo(desired) < 0.06 && s.gunCd <= 0 && s.energy > 10) fireLasers(game, s);
-      toP.divideScalar(dist || 1);
-      if (dist < 4500 && f.angleTo(toP) < 0.3) s.lockTime += dt;
-      else s.lockTime = Math.max(0, s.lockTime - dt * 2);
-      if (s.missiles > 0 && s.lockTime > 2.5 && Math.random() < dt * 0.35) fireMissile(game, s, p);
-      if (dist < 220 || s.recentHits >= 4) {
-        s.aiState = 'evade';
-        s.aiTimer = 1.6 + Math.random() * 1.6;
-        s.recentHits = 0;
-        s.evadeDir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().addScaledVector(toP, -0.8).normalize();
-      }
+  // Choose a target every few seconds.
+  s.retarget -= dt;
+  if (s.retarget <= 0 || !hostileTo(game, s, s.aiTarget)) {
+    s.retarget = 3 + Math.random() * 2;
+    let best = null, bd = s.team === 'police' ? 14000 : 9000;
+    for (const o of game.ships) {
+      if (!hostileTo(game, s, o)) continue;
+      const d = o.pos.distanceTo(s.pos) * (o.isPlayer && s.team === 'pirate' ? 0.7 : 1);
+      if (d < bd) { bd = d; best = o; }
     }
+    s.aiTarget = best;
   }
-  turnToward(s.obj, desired, s.turn * dt);
+
+  const pos = s.pos;
+  const bh = game.world.blackHole;
+  if (bh) {
+    const away = _a.subVectors(pos, bh.pos);
+    const bhd = away.length();
+    if (bhd < 15000) { steer(s, away.multiplyScalar(s.cruise / bhd).add(s.vel.clone().multiplyScalar(0)), dt, null); return; }
+  }
+
+  const p = s.aiTarget;
+  if (!p || game.state === 'docking') {
+    // Patrol: police wander around their home point, pirates loiter.
+    s.home = s.home || pos.clone();
+    if (!s.wp || pos.distanceTo(s.wp) < 1200) s.wp = s.home.clone().add(V().set(Math.random() - 0.5, (Math.random() - 0.5) * 0.4, Math.random() - 0.5).multiplyScalar(8000));
+    const to = _b.subVectors(s.wp, pos);
+    steer(s, to.multiplyScalar(Math.min(220, to.length() * 0.2) / (to.length() || 1)), dt, null);
+    s.lockTime = 0;
+    return;
+  }
+
+  const toP = _a.subVectors(p.pos, pos);
+  const dist = toP.length();
+  toP.divideScalar(dist || 1);
+  if (s.aiState === 'evade') {
+    s.aiTimer -= dt;
+    steer(s, _b.copy(p.vel).addScaledVector(s.evadeDir, s.cruise), dt, null);
+    if (s.aiTimer <= 0) s.aiState = 'attack';
+    return;
+  }
+  // Approach in the target's frame: close fast when far, hold off when near.
+  const approach = dist > 2500 ? s.cruise : dist > 900 ? s.cruise * 0.45 : dist > 350 ? 50 : -160;
+  const vd = _b.copy(p.vel).addScaledVector(toP, approach);
+  // Lead the target: bolts inherit our velocity, so use relative velocity.
+  const lead = V().copy(p.pos).addScaledVector(V().subVectors(p.vel, s.vel), dist / LASER_SPEED).sub(pos).normalize();
+  steer(s, vd, dt, dist < 3200 ? lead : null);
+  const f = forwardOf(s.obj, _d);
+  if (s.gunDmg > 0 && dist < 2600 && f.angleTo(lead) < 0.06 && s.gunCd <= 0 && s.energy > 10) fireLasers(game, s);
+  if (dist < 4500 && f.angleTo(toP) < 0.3) s.lockTime += dt;
+  else s.lockTime = Math.max(0, s.lockTime - dt * 2);
+  if (s.missiles > 0 && s.lockTime > 2.5 && Math.random() < dt * 0.35) fireMissile(game, s, p);
+  if (dist < 220 || s.recentHits >= 4) {
+    s.aiState = 'evade';
+    s.aiTimer = 1.6 + Math.random() * 1.6;
+    s.recentHits = 0;
+    s.evadeDir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().addScaledVector(toP, -0.8).normalize();
+  }
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LASER_SPEED, LOCK_TIME } from './ships.js';
+import { LASER_SPEED, lockTimeFor } from './ships.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
 const _pv = new THREE.Vector3(), _tv = new THREE.Vector3(), _lead = new THREE.Vector3();
@@ -93,6 +93,7 @@ export class Hud {
       this.drawContacts(ctx);
       this.drawNav(ctx);
       this.drawTarget(ctx);
+      this.drawVelocity(ctx);
       this.drawCrosshair(ctx);
       if (g.mouseFlight && g.mouse.inside && g.state === 'flight') this.drawMouse(ctx);
       if (p.gAccel > 15) this.drawGravity(ctx, p.gAccel);
@@ -104,6 +105,34 @@ export class Hud {
       this.flash -= dt * 1.8;
     }
     if (g.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, g.fade)})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  // Prograde (where you are actually going) and retrograde (point here and thrust to slow down).
+  drawVelocity(ctx) {
+    const p = this.g.player;
+    if (p.speed < 3) return;
+    const v = p.vel.clone().normalize().multiplyScalar(5000);
+    const pro = this.project(v.clone().add(p.pos));
+    const retro = this.project(v.negate().add(p.pos));
+    if (pro.on) {
+      ctx.strokeStyle = 'rgba(125,255,176,0.95)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(pro.x, pro.y, 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(pro.x - 8, pro.y); ctx.lineTo(pro.x - 15, pro.y);
+      ctx.moveTo(pro.x + 8, pro.y); ctx.lineTo(pro.x + 15, pro.y);
+      ctx.moveTo(pro.x, pro.y - 8); ctx.lineTo(pro.x, pro.y - 15);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(125,255,176,0.8)'; ctx.textAlign = 'left';
+      ctx.fillText(`${Math.round(p.speed)}`, pro.x + 18, pro.y + 4);
+    }
+    if (retro.on) {
+      ctx.strokeStyle = 'rgba(255,184,77,0.95)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(retro.x, retro.y, 8, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(retro.x - 5, retro.y - 5); ctx.lineTo(retro.x + 5, retro.y + 5);
+      ctx.moveTo(retro.x + 5, retro.y - 5); ctx.lineTo(retro.x - 5, retro.y + 5);
+      ctx.stroke();
+    }
   }
 
   drawCrosshair(ctx) {
@@ -136,7 +165,7 @@ export class Hud {
       if (s.pos.distanceTo(p.pos) > 15000) continue;
       const pr = this.project(s.pos);
       if (!pr.on) continue;
-      ctx.strokeStyle = s.team === 'civ' ? C.yellow : C.red; ctx.lineWidth = 1.3;
+      ctx.strokeStyle = s.team === 'civ' ? C.yellow : s.team === 'police' ? '#6ab0ff' : C.red; ctx.lineWidth = 1.3;
       const k = 7;
       ctx.beginPath();
       ctx.moveTo(pr.x - k, pr.y - k + 3); ctx.lineTo(pr.x - k, pr.y - k); ctx.lineTo(pr.x - k + 3, pr.y - k);
@@ -179,8 +208,8 @@ export class Hud {
   drawTarget(ctx) {
     const g = this.g, t = g.target, p = g.player;
     if (!t) return;
-    const hostile = t.team === 'pirate';
-    const col = hostile ? C.red : t.isStation ? C.green : C.yellow;
+    const hostile = t.team === 'pirate' || (t.team === 'police' && g.isWanted());
+    const col = hostile ? C.red : t.isStation ? C.green : t.team === 'police' ? '#6ab0ff' : C.yellow;
     const dist = t.pos.distanceTo(p.pos);
     const pr = this.project(t.pos);
     if (!pr.on) { this.edgeArrow(ctx, pr, col, fmtDist(dist)); return; }
@@ -215,9 +244,10 @@ export class Hud {
         ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(pr.x, pr.y); ctx.lineTo(lp.x, lp.y); ctx.stroke(); ctx.setLineDash([]);
       }
       // Missile lock
-      if (p.lockTime > 0) {
-        const f = Math.min(1, p.lockTime / LOCK_TIME);
-        const locked = p.lockTime >= LOCK_TIME;
+      const need = lockTimeFor(p);
+      if (need > 0 && p.lockTime > 0) {
+        const f = Math.min(1, p.lockTime / need);
+        const locked = p.lockTime >= need;
         const r = s + 10;
         ctx.strokeStyle = locked ? '#ff2d2d' : C.amber; ctx.lineWidth = 2.5;
         if (locked) {

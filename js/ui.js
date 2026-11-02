@@ -1,8 +1,14 @@
-import { COMMODITIES } from './world.js';
-import { forwardOf, UPGRADES, holdFor } from './ships.js';
-import { generateOffers, missionSummary, hasSave } from './career.js';
+import { COMMODITIES, SYSTEMS } from './world.js';
+import { forwardOf, UPGRADES, MISSILES, MISSILE_SLOTS, missileSlotsUsed } from './ships.js';
+import { generateOffers, missionSummary, hasSave, repLabel } from './career.js';
+import { STORY } from './story.js';
 import { fmtDist } from './hud.js';
 import { audio } from './audio.js';
+
+const THREE_COLOR = function (rgb) {
+  const m = Math.max(...rgb, 1);
+  this.hex = () => rgb.map(v => Math.round(Math.min(1, v / m) * 255).toString(16).padStart(2, '0')).join('');
+};
 
 export class UI {
   constructor(game) {
@@ -49,7 +55,8 @@ export class UI {
 
   layoutMap() {
     const g = this.g, w = g.world;
-    const pts = [...w.planets.map(p => p.pos), ...g.navs.map(n => n.pos), w.blackHole.pos, g.player.pos];
+    const pts = [...w.planets.map(p => p.pos), ...g.navs.map(n => n.pos), g.player.pos];
+    if (w.blackHole) pts.push(w.blackHole.pos);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const p of pts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
     const pad = 20000;
@@ -103,24 +110,26 @@ export class UI {
     c.textAlign = 'center';
 
     // Black hole and its danger zones
-    const [bx, by] = mp(w.blackHole.pos);
-    c.setLineDash([6, 6]);
-    c.strokeStyle = 'rgba(255,180,60,0.5)';
-    c.beginPath(); c.arc(bx, by, 23700 * s, 0, Math.PI * 2); c.stroke();
-    c.strokeStyle = 'rgba(255,60,60,0.8)';
-    c.beginPath(); c.arc(bx, by, 7300 * s, 0, Math.PI * 2); c.stroke();
-    c.setLineDash([]);
-    const bhg = c.createRadialGradient(bx, by, 0, bx, by, 9500 * s);
-    bhg.addColorStop(0, '#000'); bhg.addColorStop(0.15, '#000'); bhg.addColorStop(0.2, 'rgba(255,220,170,0.9)');
-    bhg.addColorStop(0.45, 'rgba(255,120,50,0.45)'); bhg.addColorStop(1, 'rgba(120,20,80,0)');
-    c.fillStyle = bhg; c.beginPath(); c.arc(bx, by, 9500 * s, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#ff9a8a';
-    c.fillText('SABLE RIFT (black hole)', bx, by + 9500 * s + 14);
-    c.fillStyle = 'rgba(255,180,60,0.8)';
-    c.fillText('gravity well', bx, by - 23700 * s - 6);
+    if (w.blackHole) {
+      const [bx, by] = mp(w.blackHole.pos);
+      c.setLineDash([6, 6]);
+      c.strokeStyle = 'rgba(255,180,60,0.5)';
+      c.beginPath(); c.arc(bx, by, 23700 * s, 0, Math.PI * 2); c.stroke();
+      c.strokeStyle = 'rgba(255,60,60,0.8)';
+      c.beginPath(); c.arc(bx, by, 7300 * s, 0, Math.PI * 2); c.stroke();
+      c.setLineDash([]);
+      const bhg = c.createRadialGradient(bx, by, 0, bx, by, 9500 * s);
+      bhg.addColorStop(0, '#000'); bhg.addColorStop(0.15, '#000'); bhg.addColorStop(0.2, 'rgba(255,220,170,0.9)');
+      bhg.addColorStop(0.45, 'rgba(255,120,50,0.45)'); bhg.addColorStop(1, 'rgba(120,20,80,0)');
+      c.fillStyle = bhg; c.beginPath(); c.arc(bx, by, 9500 * s, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#ff9a8a';
+      c.fillText('SABLE RIFT (black hole)', bx, by + 9500 * s + 14);
+      c.fillStyle = 'rgba(255,180,60,0.8)';
+      c.fillText('gravity well', bx, by - 23700 * s - 6);
+    }
 
     // Asteroid belt
-    const [ax, ay] = mp(w.belt.center);
+    const [ax, ay] = w.belt ? mp(w.belt.center) : [-1e5, -1e5];
     c.fillStyle = 'rgba(190,160,130,0.5)';
     for (let i = 0; i < 160; i++) {
       const a = i * 2.39996, r = (2500 + (i * 37 % 75) * 100) * s;
@@ -183,6 +192,7 @@ export class UI {
     // Contract markers
     c.font = 'bold 13px "Share Tech Mono", monospace';
     for (const m of g.missions) {
+      if (m.sys !== g.sys) continue;
       const pos = m.type === 'bounty' ? g.navs[m.navIndex].pos : w.stations[m.dest].pos;
       const [x, y] = mp(pos);
       c.fillStyle = '#ffd36b';
@@ -196,11 +206,42 @@ export class UI {
       g.missions.forEach((m, i) => c.fillText(`● ${missionSummary(g, m)}`, 24, 84 + i * 16));
     }
 
+    // Story objective marker
+    const sstep = g.storyStep();
+    if (sstep && sstep.sys === g.sys) {
+      const pos = sstep.do === 'reach' ? g.navs[sstep.nav].pos : sstep.do === 'dock' ? w.stations[sstep.station].pos : null;
+      if (pos) {
+        const [x, y] = mp(pos);
+        c.strokeStyle = '#ffd36b'; c.lineWidth = 2;
+        c.beginPath(); c.arc(x, y, 18 + Math.sin(performance.now() / 300) * 2, 0, Math.PI * 2); c.stroke();
+        c.fillStyle = '#ffd36b'; c.textAlign = 'center'; c.fillText('STORY', x, y - 24);
+      }
+    }
+    // Galaxy inset: systems and jump links
+    {
+      const gx = W - 190, gy = H - 180, gw = 166, gh = 140;
+      c.fillStyle = 'rgba(5,15,30,0.85)'; c.fillRect(gx, gy, gw, gh);
+      c.strokeStyle = 'rgba(127,216,255,0.4)'; c.lineWidth = 1; c.strokeRect(gx, gy, gw, gh);
+      const P = id => [gx + gw / 2 + SYSTEMS[id].galaxy[0] * 58, gy + gh / 2 - SYSTEMS[id].galaxy[1] * 42];
+      c.strokeStyle = 'rgba(127,216,255,0.35)';
+      for (const [id, d] of Object.entries(SYSTEMS)) for (const n of d.navs) if (n.kind === 'jump') { const [a, b] = P(id), [e, f] = P(n.to); c.beginPath(); c.moveTo(a, b); c.lineTo(e, f); c.stroke(); }
+      for (const [id, d] of Object.entries(SYSTEMS)) {
+        const [x, y] = P(id);
+        c.fillStyle = id === g.sys ? '#ffffff' : '#' + new THREE_COLOR(d.star.glow).hex();
+        c.beginPath(); c.arc(x, y, id === g.sys ? 6 : 4, 0, Math.PI * 2); c.fill();
+        c.fillStyle = id === g.sys ? '#ffffff' : 'rgba(190,220,255,0.7)';
+        c.textAlign = 'center'; c.font = '11px "Share Tech Mono", monospace';
+        c.fillText(d.name, x, y + 16);
+      }
+      c.fillStyle = 'rgba(190,220,255,0.6)'; c.textAlign = 'left'; c.fillText('GALAXY', gx + 6, gy + 13);
+      c.font = '12px "Share Tech Mono", monospace';
+    }
+
     // Hostiles on sensors
     for (const sh of g.ships) {
       if (!sh.alive || sh.isPlayer || sh.pos.distanceTo(g.player.pos) > 25000) continue;
       const [x, y] = mp(sh.pos);
-      c.fillStyle = sh.team === 'civ' ? '#ffd36b' : '#ff5a4a'; c.beginPath(); c.arc(x, y, 2.5, 0, Math.PI * 2); c.fill();
+      c.fillStyle = sh.team === 'civ' ? '#ffd36b' : sh.team === 'police' ? '#6ab0ff' : '#ff5a4a'; c.beginPath(); c.arc(x, y, 2.5, 0, Math.PI * 2); c.fill();
     }
 
     // Player arrow
@@ -215,13 +256,13 @@ export class UI {
     c.textAlign = 'left';
     c.font = '20px "Orbitron", sans-serif';
     c.fillStyle = '#dff3ff';
-    c.fillText('SABLE RIFT SYSTEM — NAV MAP', 24, 38);
+    c.fillText(`${g.world.name.toUpperCase()} SYSTEM · NAV MAP`, 24, 38);
     c.font = '13px "Share Tech Mono", monospace';
     c.fillStyle = 'rgba(170,220,255,0.75)';
-    c.fillText('Click a nav point to plot a course · N cycles · A engages autopilot · M / Esc closes', 24, 60);
+    c.fillText('Click a nav point to plot a course · N cycles · A autopilot · J jumps at a gate · M / Esc closes', 24, 60);
     c.textAlign = 'right';
     c.fillStyle = 'rgba(170,220,255,0.6)';
-    c.fillText('◆ nav point   □ station   ● hostile   ▸ you   - - - danger zones', W - 24, H - 20);
+    c.fillText('◆ nav point   □ station   ● hostile   ▸ you   - - - danger zones', W - 210, H - 20);
   }
 
   // ------------------------------------------------------------- Docked screen
@@ -230,10 +271,13 @@ export class UI {
     this.station = station;
     station.prices = {};
     for (const cm of COMMODITIES) {
-      const buy = Math.max(5, Math.round(cm.base * station.market[cm.id] * (0.92 + Math.random() * 0.16)));
-      station.prices[cm.id] = { buy, sell: Math.round(buy * 0.9) };
+      const f = station.market[cm.id];
+      if (f === undefined) continue;
+      const buy = Math.max(5, Math.round(cm.base * f * (0.92 + Math.random() * 0.16)));
+      // Legal stations never sell contraband, but a back-room buyer pays well for it.
+      station.prices[cm.id] = { buy, sell: Math.round(buy * 0.9), noBuy: cm.illegal && station.market.legal };
     }
-    station.offers = generateOffers(g, g.world.stations.indexOf(station));
+    station.offers = generateOffers(g, station);
     this.tab = this.tab || 'market';
     g.state = 'trade';
     this.tradeEl.classList.remove('hidden');
@@ -245,20 +289,25 @@ export class UI {
   renderTrade() {
     const g = this.g, st = this.station;
     const used = g.cargoUsed();
-    const tabs = [['market', 'MARKET'], ['contracts', `CONTRACTS${g.missions.length ? ` (${g.missions.length})` : ''}`], ['shipyard', 'SHIPYARD'], ['services', 'SERVICES']];
-    const body = { market: () => this.marketHTML(), contracts: () => this.contractsHTML(), shipyard: () => this.shipyardHTML(), services: () => this.servicesHTML() }[this.tab]();
+    const storyHere = g.storyAvailableHere(st);
+    const tabs = [['market', 'MARKET'], ['contracts', `CONTRACTS${g.missions.length ? ` (${g.missions.length})` : ''}`], ['shipyard', 'SHIPYARD'], ['services', 'SERVICES'], ['story', storyHere ? 'STORY ●' : 'STORY']];
+    const body = { market: () => this.marketHTML(), contracts: () => this.contractsHTML(), shipyard: () => this.shipyardHTML(), services: () => this.servicesHTML(), story: () => this.storyHTML() }[this.tab]();
+    const notice = this.notice ? `<div class="story"><h3>${this.notice.title}</h3>${this.notice.text}</div>` : '';
     this.panel.innerHTML = `
       <button class="launch" data-a="launch">LAUNCH ▸</button>
       <h2>${st.name.toUpperCase()}</h2>
-      <div class="sub">Docking bay 3 · your progress is saved whenever you dock or launch</div>
+      <div class="sub">${g.world.name} system${st.outpost ? ' · Ashfang outpost: no law here' : ''} · progress is saved whenever you dock or launch</div>
       <div class="stats">
         <span>Credits: <b>${g.credits.toLocaleString()}</b> cr</span>
         <span>Cargo: <b>${used}/${g.cargoCap}</b></span>
         <span>Kills: <b>${g.kills}</b></span>
+        <span class="rep">Authority: <b>${repLabel(g.rep.authority)}</b> (${g.rep.authority})</span>
+        <span class="rep">Ashfang: <b>${repLabel(g.rep.ashfang)}</b> (${g.rep.ashfang})</span>
       </div>
+      ${notice}
       <div class="tabs">${tabs.map(([id, t]) => `<button data-a="tab" data-id="${id}" class="${this.tab === id ? 'on' : ''}">${t}</button>`).join('')}</div>
       ${body}
-      <div class="dim foot">1–4 switch tabs · L / Esc to launch</div>`;
+      <div class="dim foot">1–5 switch tabs · L / Esc to launch</div>`;
   }
 
   marketHTML() {
@@ -267,22 +316,23 @@ export class UI {
     let rows = '';
     for (const cm of COMMODITIES) {
       const pr = st.prices[cm.id];
+      if (!pr) continue;
       const held = g.cargo[cm.id]?.qty || 0;
       const avg = held ? Math.round(g.cargo[cm.id].cost / held) : 0;
       const profit = held ? pr.sell - avg : 0;
-      const canBuy = free > 0 && g.credits >= pr.buy;
+      const canBuy = free > 0 && g.credits >= pr.buy && !pr.noBuy;
       rows += `<tr>
-        <td>${cm.name}</td>
-        <td class="num">${pr.buy}</td>
+        <td>${cm.illegal ? `<span class="bad">${cm.name}</span>` : cm.name}</td>
+        <td class="num">${pr.noBuy ? '—' : pr.buy}</td>
         <td class="num">${pr.sell}</td>
         <td class="num">${held}${held ? ` <span class="dim">@${avg}</span> <span class="${profit >= 0 ? 'good' : 'bad'}">${profit >= 0 ? '+' : ''}${profit}</span>` : ''}</td>
         <td><button data-a="buy" data-id="${cm.id}" data-n="1" ${canBuy ? '' : 'disabled'}>BUY 1</button><button data-a="buy" data-id="${cm.id}" data-n="5" ${canBuy ? '' : 'disabled'}>5</button><button data-a="buy" data-id="${cm.id}" data-n="max" ${canBuy ? '' : 'disabled'}>MAX</button></td>
         <td><button data-a="sell" data-id="${cm.id}" data-n="1" ${held ? '' : 'disabled'}>SELL 1</button><button data-a="sell" data-id="${cm.id}" data-n="all" ${held ? '' : 'disabled'}>ALL</button></td>
       </tr>`;
     }
-    const contract = g.cargo.contract?.qty || 0;
+    const contract = (g.cargo.contract?.qty || 0) + (g.cargo.smuggle?.qty || 0);
     const other = g.world.stations.find(s => s !== st);
-    return `<div class="sub">Prices at ${other.name} differ: buy low here, sell there.</div>
+    return `<div class="sub">${other ? `Prices at ${other.name} differ: buy low here, sell there. ` : ''}Contraband (red) can be sold at legal stations, but Authority patrols scan cargo.</div>
       <table>
         <tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">In hold</th><th></th><th></th></tr>
         ${rows}
@@ -336,20 +386,39 @@ export class UI {
     const svc = [
       ['repair', `Repair armor (${Math.round(p.armor)}/${p.armorMax})`, repairCost, p.armor < p.armorMax - 0.5],
       ['fuel', `Refuel afterburner (${Math.round(p.abFuel)}%)`, fuelCost, p.abFuel < 99.5],
-      ['missile', `Seeker missile (${p.missiles}/${p.maxMissiles})`, 200, p.missiles < p.maxMissiles],
       ['decoy', `Decoy (${p.decoys}/${p.maxDecoys})`, 40, p.decoys < p.maxDecoys],
     ];
+    const free = MISSILE_SLOTS - missileSlotsUsed(p);
+    for (const [k, M] of Object.entries(MISSILES)) {
+      if (k === 'torpedo' && !g.world.stations.some(x => x === this.station && (x.hq || x.outpost))) continue;
+      svc.push(['msl:' + k, `${M.name} (${M.label}, ${M.dmg} dmg, ${M.lock ? M.lock + ' s lock' : 'no lock'}, ${M.slots} slot${M.slots > 1 ? 's' : ''}) · have ${p.ammo[k]}`, M.cost, free >= M.slots]);
+    }
     let rows = '';
     for (const [id, lbl, cost, avail] of svc) {
       rows += `<tr><td>${lbl}</td><td class="num">${avail ? cost + ' cr' : '—'}</td><td><button data-a="svc" data-id="${id}" ${avail && g.credits >= cost && cost > 0 ? '' : 'disabled'}>${id === 'repair' || id === 'fuel' ? 'SERVICE' : 'BUY'}</button></td></tr>`;
     }
-    return `<table>${rows}</table>`;
+    return `<div class="sub">Missile rack: ${missileSlotsUsed(p)}/${MISSILE_SLOTS} slots used. Torpedoes are only sold at Corvane Shipyards and Gallows Rock.</div><table>${rows}</table>`;
+  }
+
+  storyHTML() {
+    const g = this.g, st = this.station, S = g.story;
+    if (S.ch >= STORY.length) return '<div class="story"><h3>CAMPAIGN COMPLETE</h3>The Ashfang pipeline is broken. Keep trading, hunting and exploring.</div>';
+    const ch = STORY[S.ch];
+    if (S.active) {
+      const step = ch.steps[S.step];
+      return `<div class="story"><h3>CHAPTER ${S.ch + 1}: ${ch.title.toUpperCase()}</h3>Current objective: <b>${step.text}</b></div>`;
+    }
+    const giverSt = SYSTEMS[ch.giver.sys].stations[ch.giver.station].name;
+    if (!g.storyAvailableHere(st)) return `<div class="story"><h3>CHAPTER ${S.ch + 1}: ${ch.title.toUpperCase()}</h3>Your next contact waits at <b>${giverSt}</b> in the ${SYSTEMS[ch.giver.sys].name} system.</div>`;
+    return `<div class="story"><h3>CHAPTER ${S.ch + 1}: ${ch.title.toUpperCase()}</h3><span class="dim">${ch.giver.who}:</span><br>${ch.brief}<br><br>Reward: <b class="good">${ch.reward.toLocaleString()} cr</b></div>
+      <button data-a="story">ACCEPT</button>`;
   }
 
   tradeAction(a, id, n) {
     const g = this.g, st = this.station, p = g.player;
     if (a === 'launch') { g.launchFromStation(st); return; }
-    if (a === 'tab') { this.tab = id; audio.click(); this.renderTrade(); return; }
+    if (a === 'tab') { this.tab = id; this.notice = null; audio.click(); this.renderTrade(); return; }
+    if (a === 'story') { g.acceptStory(); this.renderTrade(); return; }
     if (a === 'buy') {
       const pr = st.prices[id].buy;
       const free = g.cargoCap - g.cargoUsed();
@@ -372,7 +441,7 @@ export class UI {
     } else if (a === 'svc') {
       if (id === 'repair') { g.credits -= Math.ceil((p.armorMax - p.armor) * 4); p.armor = p.armorMax; }
       if (id === 'fuel') { g.credits -= Math.ceil((100 - p.abFuel) * 2); p.abFuel = 100; }
-      if (id === 'missile') { g.credits -= 200; p.missiles++; }
+      if (id.startsWith('msl:')) { const k = id.slice(4); g.credits -= MISSILES[k].cost; p.ammo[k]++; }
       if (id === 'decoy') { g.credits -= 40; p.decoys++; }
       audio.cash();
     } else if (a === 'upgrade') {
@@ -387,10 +456,9 @@ export class UI {
       if (i < 0) return;
       const m = st.offers[i];
       if (m.type === 'delivery') {
-        const c = g.cargo.contract || (g.cargo.contract = { qty: 0, cost: 0 });
+        const key = m.illegal ? 'smuggle' : 'contract';
+        const c = g.cargo[key] || (g.cargo[key] = { qty: 0, cost: 0 });
         c.qty += m.qty;
-      } else {
-        g.navIndex = m.navIndex;
       }
       st.offers.splice(i, 1);
       g.missions.push(m);

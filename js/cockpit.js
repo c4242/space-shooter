@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, LOCK_TIME } from './ships.js';
+import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, buildPoliceModel, buildWarlordModel, lockTimeFor, MISSILES, heatTarget } from './ships.js';
+import { STORY } from './story.js';
 import { missionSummary } from './career.js';
 import { makeStation } from './world.js';
 import { fmtDist } from './hud.js';
@@ -93,6 +94,9 @@ export class Cockpit {
       pirate: wire(buildPirateModel().group, green),
       marauder: wire(buildMarauderModel().group, green),
       freighter: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.9, 0.45)),
+      smuggler: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.5, 0.4)),
+      police: wire(buildPoliceModel().group, new THREE.Color(0.5, 0.75, 1.0)),
+      warlord: wire(buildWarlordModel().group, new THREE.Color(1.0, 0.45, 0.35)),
       station: wire(makeStation(0x33ff88).group, green),
     };
     for (const m of Object.values(this.models)) { m.visible = false; this.scene.add(m); }
@@ -218,7 +222,7 @@ export class Cockpit {
 
     // Console instrument housings
     recess(c, L.leds.x - 4 * u, L.leds.y - 3 * u, L.leds.w + 8 * u, L.leds.h + 6 * u, 3);
-    for (const [b, t] of [[L.set, 'SET'], [L.spd, 'SPD']]) {
+    for (const [b, t] of [[L.set, 'THR %'], [L.spd, 'SPD m/s']]) {
       recess(c, b.x, b.y, b.w, b.h, 3);
       label(c, t, b.x + 5 * u, b.y + 7 * u, Math.max(8, 8 * u), 'rgba(220,255,200,0.55)', 'left');
     }
@@ -266,7 +270,7 @@ export class Cockpit {
       label(c, '8888', x, y, fs, 'rgba(120,255,140,0.07)', 'right');
       label(c, String(Math.round(v)), x, y, fs, col, 'right');
     };
-    dig(L.set, p.setSpeed, phos(0.95));
+    dig(L.set, p.throttle * 100, p.retro ? AMBER : phos(0.95));
     dig(L.spd, p.speed, p.afterburner ? AMBER : phos(0.95));
 
     this.drawShields(c, L.shield, p);
@@ -398,11 +402,11 @@ export class Cockpit {
     };
     const s = Math.max(2, 2.6 * u);
     const bh = g.world.blackHole;
-    if (bh.pos.distanceTo(p.pos) < 80000) plot(bh.pos, '#c46bff', s * 1.4, 'circle');
+    if (bh && bh.pos.distanceTo(p.pos) < 80000) plot(bh.pos, '#c46bff', s * 1.4, 'circle');
     for (const st of g.world.stations) if (st.pos.distanceTo(p.pos) < 120000) plot(st.pos, '#9dffb0', s, 'sq', st === g.target);
     const nav = g.navs[g.navIndex];
     if (nav) plot(nav.pos, '#7fd8ff', s * 1.3, 'dia');
-    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
+    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : sh.team === 'police' ? '#6ab0ff' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
     for (const m of g.missiles) if (m.mesh.position.distanceTo(p.pos) < 8000) plot(m.mesh.position, '#ffe066', s * 0.8, 'circle');
     c.restore();
     // Nav / gravity readout under the radar
@@ -415,17 +419,19 @@ export class Cockpit {
     const g = this.g, p = g.player, L = this.L, { u } = L;
     // Missile lock lamp
     const lk = L.lock;
-    const locked = p.lockTime >= LOCK_TIME, acquiring = p.lockTime > 0 && !locked;
+    const need = lockTimeFor(p);
+    const heat = need === 0 ? heatTarget(g, p) : null;
+    const locked = need === 0 ? !!heat : p.lockTime >= need, acquiring = need > 0 && p.lockTime > 0 && !locked;
     const on = locked || (acquiring && (t * 6 % 1) < 0.5);
     c.beginPath(); c.roundRect(lk.x + 2, lk.y + 2, lk.w - 4, lk.h - 4, 2);
     if (on) { c.shadowColor = RED; c.shadowBlur = 12; c.fillStyle = locked ? '#8a120a' : '#6a3a06'; } else c.fillStyle = '#160c0a';
     c.fill(); c.shadowBlur = 0;
-    label(c, 'LOCK', lk.x + lk.w / 2, lk.y + lk.h / 2 + 1, 12 * u, on ? '#ffd0c0' : 'rgba(255,120,100,0.25)');
+    label(c, need === 0 ? 'HEAT' : 'LOCK', lk.x + lk.w / 2, lk.y + lk.h / 2 + 1, 12 * u, on ? '#ffd0c0' : 'rgba(255,120,100,0.25)');
 
     // Ordnance screen
     const b = L.msl;
     const lines = [
-      ['MSL', String(p.missiles), p.missiles ? phos(0.9) : RED],
+      [MISSILES[p.missileType].name.slice(0, 4).toUpperCase(), String(p.ammo[p.missileType]), p.ammo[p.missileType] ? phos(0.9) : RED],
       ['DCY', String(p.decoys), p.decoys ? phos(0.9) : RED],
       ['GUN', `${Math.round(p.energy)}%`, p.energy > 25 ? phos(0.9) : AMBER],
     ];
@@ -473,9 +479,12 @@ export class Cockpit {
     label(c, 'WEAPON SYSTEMS', s.x + s.w / 2, s.y + 11 * u, fs, phos(0.95));
     c.fillStyle = phos(0.5); c.fillRect(s.x + 10 * u, s.y + 19 * u, s.w - 20 * u, 1);
     label(c, `Gun: ${p.gunName}`, s.x + 10 * u, s.y + 30 * u, fs * 0.92, phos(0.85), 'left');
+    const step = g.storyStep();
     const job = g.missions[0];
-    if (job) label(c, `Job: ${missionSummary(g, job)}`, s.x + 10 * u, s.y + s.h - 24 * u, fs * 0.85, '#ffd36b', 'left');
-    label(c, `Missile: Seeker x${p.missiles}`, s.x + 10 * u, s.y + 43 * u, fs * 0.92, p.missiles ? phos(0.85) : RED, 'left');
+    if (step) label(c, `Story: ${step.text}`, s.x + 10 * u, s.y + s.h - 24 * u, fs * 0.85, '#ffd36b', 'left');
+    else if (job) label(c, `Job: ${missionSummary(g, job)}`, s.x + 10 * u, s.y + s.h - 24 * u, fs * 0.85, '#ffd36b', 'left');
+    label(c, `Missile: ${MISSILES[p.missileType].name} x${p.ammo[p.missileType]}  (G)`, s.x + 10 * u, s.y + 43 * u, fs * 0.92, p.ammo[p.missileType] ? phos(0.85) : RED, 'left');
+    label(c, Object.entries(p.ammo).map(([k, n]) => `${MISSILES[k].name[0]}:${n}`).join(' '), s.x + s.w - 10 * u, s.y + 43 * u, fs * 0.85, phos(0.55), 'right');
     label(c, `CR ${g.credits.toLocaleString()}`, s.x + 10 * u, s.y + s.h - 10 * u, fs * 0.92, '#ffe066', 'left');
     label(c, `HOLD ${g.cargoUsed()}/${g.cargoCap}`, s.x + s.w - 10 * u, s.y + s.h - 10 * u, fs * 0.92, phos(0.85), 'right');
     this.screenEnd(c, s);

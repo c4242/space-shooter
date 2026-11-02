@@ -222,6 +222,125 @@ export function buildMarauderModel() {
   return { group: outer, glows, gunPorts: [new THREE.Vector3(-7.1, 0, -11.6), new THREE.Vector3(7.1, 0, -11.6), new THREE.Vector3(0, 3, -5)], exhaust: new THREE.Vector3(0, 0, 13), engineColor: [3, 1, 0.3] };
 }
 
+// Ashfang carrier: a 300 m capital ship with a hangar deck and turrets.
+export function buildCarrierModel() {
+  const g = new THREE.Group();
+  const hull = mat(0x4a4440, { roughness: 0.6 }), dark = mat(0x1d1b1a, { roughness: 0.75 });
+  const red = mat(0x6e1410, { emissive: 0x8a0c04, emissiveIntensity: 1.6 });
+  const win = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff7a40, emissiveIntensity: 2 });
+  part(g, new THREE.BoxGeometry(60, 34, 260), hull, [0, 0, 0]);
+  part(g, new THREE.ConeGeometry(34, 70, 4), hull, [0, 0, -164], [-Math.PI / 2, Math.PI / 4, 0]);
+  part(g, new THREE.BoxGeometry(90, 10, 150), dark, [0, -14, 20]);           // flight deck
+  part(g, new THREE.BoxGeometry(44, 18, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.8, 0.3) }), [0, -12, -56]); // hangar mouth
+  part(g, new THREE.BoxGeometry(22, 34, 40), hull, [18, 32, 60]);             // bridge tower
+  part(g, new THREE.BoxGeometry(23, 3, 36), win, [18, 42, 60]);
+  for (const sx of [-1, 1]) {
+    part(g, new THREE.BoxGeometry(6, 40, 200), hull, [sx * 33, 2, 0]);
+    part(g, new THREE.BoxGeometry(2, 3, 180), red, [sx * 36.5, 12, 0]);
+    part(g, new THREE.CylinderGeometry(14, 18, 30, 12), dark, [sx * 20, 0, 140], [Math.PI / 2, 0, 0]);
+  }
+  for (let i = 0; i < 26; i++) part(g, new THREE.BoxGeometry(1.6, 1.6, 0.4), win, [(i % 2 ? 1 : -1) * 30.3, (i % 3) * 6 - 6, -110 + i * 8.5], [0, Math.PI / 2, 0]);
+  // Turrets: a base and a pivoting twin barrel
+  const turrets = [];
+  for (const [x, y, z] of [[0, 18, -80], [0, 18, 0], [-24, 18, 90], [24, -20, -100], [-24, -20, 100]]) {
+    const base = part(g, new THREE.CylinderGeometry(6, 7, 4, 10), dark, [x, y + Math.sign(y) * 2, z]);
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y + Math.sign(y) * 6, z);
+    g.add(pivot);
+    for (const bx of [-1.6, 1.6]) part(pivot, new THREE.CylinderGeometry(0.8, 0.8, 14, 6), hull, [bx, 0, -7], [Math.PI / 2, 0, 0]);
+    turrets.push({ pivot, base, cd: Math.random() * 2 });
+  }
+  // Running lights along the hull edges and floodlit panels so the silhouette reads in black space.
+  for (let i = 0; i < 9; i++) {
+    const z = -120 + i * 30;
+    for (const sx of [-1, 1]) glow(g, i % 3 === 0 ? new THREE.Color(3.5, 0.5, 0.3) : new THREE.Color(2.5, 2.4, 2.2), [sx * 37, 22, z], 7);
+  }
+  glow(g, new THREE.Color(3.5, 0.6, 0.3), [0, 0, -198], 12);
+  const flood = new THREE.MeshStandardMaterial({ color: 0x3a3632, emissive: 0x6a5a48, emissiveIntensity: 0.35, roughness: 0.7 });
+  part(g, new THREE.BoxGeometry(58, 0.6, 120), flood, [0, 17.4, -40]);
+  part(g, new THREE.BoxGeometry(86, 0.6, 140), flood, [0, -8.7, 20]);
+  const glows = [glow(g, new THREE.Color(3.2, 1.1, 0.3), [-20, 0, 156], 40), glow(g, new THREE.Color(3.2, 1.1, 0.3), [20, 0, 156], 40)];
+  return { group: g, glows, gunPorts: [], turrets, exhaust: new THREE.Vector3(0, 0, 160), engineColor: [3, 1, 0.3] };
+}
+
+// Behemoths: kilometre-long capital ships built from many hull sections.
+// opts: { len, hull, accent, lights, engine } — the same builder makes the Authority
+// dreadnought and the Ashfang Leviathan with different proportions and colours.
+export function buildBehemothModel(o) {
+  const g = new THREE.Group();
+  const L = o.len, W = L * 0.13, H = L * 0.085;
+  const hull = mat(o.hull, { roughness: 0.55 }), dark = mat(0x1c1d20, { roughness: 0.75 });
+  const accent = mat(o.accent, { emissive: o.accent, emissiveIntensity: 0.6 });
+  const win = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: o.lights, emissiveIntensity: 2.2 });
+  const flood = new THREE.MeshStandardMaterial({ color: 0x2c2c2e, emissive: new THREE.Color(o.lights).multiplyScalar(0.25), emissiveIntensity: 1, roughness: 0.7 });
+  // Spine and stepped hull sections, wide at the stern and tapering toward the prow
+  part(g, new THREE.BoxGeometry(W * 0.5, H * 0.6, L), dark, [0, 0, 0]);
+  const secs = 7;
+  for (let i = 0; i < secs; i++) {
+    const t = i / (secs - 1);
+    const w = W * (1 - 0.55 * t) * (0.9 + 0.1 * Math.sin(i * 2.3));
+    const h = H * (1 - 0.45 * t);
+    const z = L * 0.42 - t * L * 0.82;
+    part(g, new THREE.BoxGeometry(w, h, L / secs * 0.92), hull, [0, (i % 2) * h * 0.06, z]);
+    part(g, new THREE.BoxGeometry(w * 1.02, h * 0.06, L / secs * 0.8), flood, [0, h / 2 + 0.5, z]);
+    // ribs and greebles
+    for (const sx of [-1, 1]) {
+      part(g, new THREE.BoxGeometry(w * 0.08, h * 1.08, L / secs * 0.12), dark, [sx * w * 0.5, 0, z - L / secs * 0.42]);
+      part(g, new THREE.BoxGeometry(2, 3, L / secs * 0.75), win, [sx * (w / 2 + 0.6), h * 0.15, z]);
+      part(g, new THREE.BoxGeometry(2, 3, L / secs * 0.6), win, [sx * (w / 2 + 0.6), -h * 0.2, z]);
+    }
+  }
+  part(g, new THREE.ConeGeometry(W * 0.32, L * 0.16, 4), hull, [0, 0, -L * 0.5], [-Math.PI / 2, Math.PI / 4, 0]);
+  // Command tower
+  part(g, new THREE.BoxGeometry(W * 0.3, H * 0.9, L * 0.12), hull, [0, H * 0.9, L * 0.22]);
+  part(g, new THREE.BoxGeometry(W * 0.32, H * 0.1, L * 0.1), win, [0, H * 1.25, L * 0.22]);
+  part(g, new THREE.CylinderGeometry(2, 2, H * 1.2, 6), dark, [0, H * 1.9, L * 0.25]);
+  // Accent stripes
+  for (const sx of [-1, 1]) part(g, new THREE.BoxGeometry(3, H * 0.12, L * 0.7), accent, [sx * W * 0.47, H * 0.32, 0]);
+  // Engine bank
+  const glows = [];
+  for (let i = 0; i < o.engines; i++) {
+    const x = (i - (o.engines - 1) / 2) * W * 0.2;
+    part(g, new THREE.CylinderGeometry(W * 0.075, W * 0.09, L * 0.05, 14), dark, [x, 0, L * 0.5], [Math.PI / 2, 0, 0]);
+    glows.push(glow(g, new THREE.Color(...o.engine), [x, 0, L * 0.53], W * 0.35));
+  }
+  // Running lights
+  for (let i = 0; i < 14; i++) for (const sx of [-1, 1]) glow(g, i % 4 === 0 ? new THREE.Color(3.5, 0.5, 0.3) : new THREE.Color(2.4, 2.4, 2.4), [sx * W * 0.5, H * 0.52, L * 0.45 - i * L * 0.065], L * 0.012);
+  // Turret batteries along the dorsal and ventral hull
+  const turrets = [];
+  const n = o.turrets;
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const z = L * 0.4 - t * L * 0.75;
+    const side = i % 2 ? 1 : -1, y = (i % 4 < 2 ? 1 : -1) * H * 0.55;
+    const x = side * W * 0.22 * (1 - 0.4 * t);
+    part(g, new THREE.CylinderGeometry(9, 11, 5, 10), dark, [x, y, z]);
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y + Math.sign(y) * 7, z);
+    g.add(pivot);
+    part(pivot, new THREE.BoxGeometry(10, 6, 10), hull, [0, 0, 0]);
+    for (const bx of [-2.2, 2.2]) part(pivot, new THREE.CylinderGeometry(1.1, 1.1, 22, 6), hull, [bx, 0, -11], [Math.PI / 2, 0, 0]);
+    turrets.push({ pivot, cd: Math.random() * 2 });
+  }
+  return { group: g, glows, gunPorts: [], turrets, exhaust: new THREE.Vector3(0, 0, L * 0.55), engineColor: o.engine };
+}
+export const buildDreadnoughtModel = () => buildBehemothModel({ len: 1300, hull: 0x6f7a88, accent: 0x2a6fd6, lights: 0xbfe0ff, engine: [0.8, 1.8, 3.4], engines: 5, turrets: 16 });
+export const buildLeviathanModel = () => buildBehemothModel({ len: 1500, hull: 0x4a403a, accent: 0x8a1a10, lights: 0xff8a50, engine: [3.4, 1.2, 0.4], engines: 4, turrets: 14 });
+
+// Hit test against a ship: capital ships use a capsule along their long axis
+// (so shots must actually hit the hull), everything else a sphere.
+const _ca = V(), _cb = V(), _cq = V();
+export function hitsShip(s, p0, p1, extra = 0) {
+  if (!s.capsule) return segSphere(p0, p1, s.pos, s.radius + extra);
+  const f = forwardOf(s.obj, _ca);
+  const half = s.capsule.half;
+  // Closest point on the ship's axis to the segment end, then a sphere test there.
+  _cq.subVectors(p1, s.pos);
+  const tz = Math.max(-half, Math.min(half, _cq.dot(f)));
+  _cb.copy(s.pos).addScaledVector(f, tz);
+  return segSphere(p0, p1, _cb, s.capsule.r + extra);
+}
+
 export function buildFreighterModel() {
   const g = new THREE.Group();
   const hull = mat(0xb9ab8c, { metalness: 0.35, roughness: 0.55 }), dark = mat(0x34322e, { roughness: 0.7 });
@@ -369,13 +488,16 @@ const PATROLS = ['Lance', 'Warden', 'Aegis', 'Bastion', 'Sentry', 'Vigil'];
 const pick = a => a[(Math.random() * a.length) | 0];
 const BUILDERS = {
   player: () => buildPlayerModel(), pirate: buildPirateModel, marauder: buildMarauderModel, warlord: buildWarlordModel,
-  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel, wingman: buildWingmanModel,
+  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel, wingman: buildWingmanModel, carrier: buildCarrierModel, dreadnought: buildDreadnoughtModel, leviathan: buildLeviathanModel,
 };
 const HULL_MODELS = { kestrel: () => buildPlayerModel(), bastion: buildBastionModel };
 const STATS = {
   pirate: () => ({ name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER', team: 'pirate', thrust: 105, abThrust: 180, rcs: 45, cruise: 380, radius: 10, shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5, missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25, bounty: 250 + ((Math.random() * 6) | 0) * 25 }),
   marauder: () => ({ name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER', team: 'pirate', thrust: 75, abThrust: 130, rcs: 32, cruise: 320, radius: 16, shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4, missiles: 2, turn: 0.8 + Math.random() * 0.15, bounty: 650 + ((Math.random() * 6) | 0) * 25 }),
   warlord: () => ({ name: "Krell's Talon", cls: 'ASHFANG WARLORD', team: 'pirate', thrust: 70, abThrust: 120, rcs: 30, cruise: 300, radius: 24, shieldMax: 260, armorMax: 520, gunDmg: 9, fireRate: 0.16, shotCost: 3, missiles: 6, turn: 0.7, bounty: 5000 }),
+  dreadnought: () => ({ name: 'AV Sovereign', cls: 'AUTHORITY DREADNOUGHT', team: 'police', capital: true, behemoth: true, capsule: { half: 560, r: 90 }, thrust: 3, abThrust: 0, rcs: 2, cruise: 20, radius: 650, shieldMax: 6000, armorMax: 20000, gunDmg: 14, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.02, turretRange: 6000 }),
+  leviathan: () => ({ name: 'Ashfang Leviathan', cls: 'ASHFANG LEVIATHAN', team: 'pirate', capital: true, behemoth: true, launches: true, capsule: { half: 650, r: 100 }, thrust: 3, abThrust: 0, rcs: 2, cruise: 20, radius: 750, shieldMax: 4000, armorMax: 14000, gunDmg: 12, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.02, turretRange: 5000, bounty: 40000 }),
+  carrier: () => ({ name: 'Ashfang Carrier Gorehaven', cls: 'ASHFANG CARRIER', team: 'pirate', capital: true, launches: true, capsule: { half: 150, r: 35 }, thrust: 10, abThrust: 0, rcs: 4, cruise: 60, radius: 120, shieldMax: 900, armorMax: 2400, gunDmg: 8, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.08, bounty: 9000 }),
   smuggler: () => ({ name: 'Ashfang Hauler', cls: 'ASHFANG HAULER', team: 'pirate', thrust: 30, abThrust: 25, rcs: 12, cruise: 200, radius: 34, shieldMax: 60, armorMax: 220, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, bounty: 800, hauler: true }),
   freighter: () => ({ name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER', team: 'civ', thrust: 28, abThrust: 22, rcs: 12, cruise: 190, radius: 34, shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, hauler: true }),
   wingman: () => ({ name: 'Wing', cls: 'WINGMAN', team: 'player', wing: true, thrust: 125, abThrust: 220, rcs: 55, cruise: 450, radius: 11, shieldMax: 100, armorMax: 130, gunDmg: 6, fireRate: 0.18, shotCost: 4, missiles: 2, turn: 1.3 }),
@@ -388,6 +510,7 @@ export class Ship {
     this.isPlayer = kind === 'player';
     const m = this.isPlayer ? HULL_MODELS[game.hull || 'kestrel']() : BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
+    this.turrets = m.turrets || null;
     this.exhaust = m.exhaust; this.engineColor = m.engineColor; this.lightbar = m.lightbar || null;
     // One plume per engine glow, sized from the glow (positions are in the glow's parent space).
     this.plumes = this.glows.map(gl => addPlume(gl.parent, gl.position, gl.userData.base * 0.16, this.engineColor.map(c => c * 0.8)));
@@ -483,6 +606,24 @@ export function fireLasers(game, s) {
   else audio.laser(volAt(game, s.pos), false, panAt(game, s.pos));
 }
 
+// Turret fire: a bolt from a turret toward an aim point (does not depend on the hull's facing).
+function fireTurret(game, s, t, aim) {
+  t.pivot.updateMatrixWorld();
+  const from = V().setFromMatrixPosition(t.pivot.matrixWorld);
+  const dir = V().subVectors(aim, from).normalize();
+  for (const off of [-1.6, 1.6]) {
+    const p = from.clone().add(V(off, 0, 0).applyQuaternion(s.obj.quaternion)).addScaledVector(dir, 16);
+    const mesh = new THREE.Mesh(LASER_GEO, LASER_MATS[s.team]);
+    mesh.position.copy(p);
+    mesh.scale.set(1.8, 1.4, 1.8);
+    mesh.quaternion.setFromUnitVectors(Y_AXIS, dir);
+    game.scene.add(mesh);
+    game.lasers.push({ mesh, vel: dir.clone().multiplyScalar(LASER_SPEED * 0.8).add(s.vel), life: 1.8, owner: s, team: s.team, dmg: s.gunDmg });
+    game.fx.emit(p, s.vel, { life: 0.1, size: 9, sizeEnd: 2, color: [4, 1, 0.4] });
+  }
+  audio.laser(volAt(game, from) * 1.2, false, panAt(game, from));
+}
+
 export function updateLasers(game, dt) {
   const belt = game.world.belt;
   for (let i = game.lasers.length - 1; i >= 0; i--) {
@@ -495,7 +636,7 @@ export function updateLasers(game, dt) {
     if (!dead) {
       for (const s of game.ships) {
         if (!s.alive || s === L.owner || s.team === L.team) continue;
-        if (segSphere(p0, p1, s.pos, s.radius)) { hitShipWith(game, s, L.dmg, p0, L.owner); dead = true; break; }
+        if (hitsShip(s, p0, p1)) { hitShipWith(game, s, L.dmg, p0, L.owner); dead = true; break; }
       }
     }
     if (!dead && belt && p1.distanceToSquared(belt.center) < belt.extent * belt.extent) {
@@ -584,11 +725,11 @@ export function updateMissiles(game, dt) {
     let boom = m.life <= 0, victim = null;
     const p1 = m.mesh.position;
     if (!boom && m.armed <= 0) {
-      if (t && !t.isDecoy && t.alive && (segSphere(p0, p1, t.pos, tr) || p1.distanceTo(t.pos) < tr)) { boom = true; victim = t; }
+      if (t && !t.isDecoy && t.alive && (t.capsule ? hitsShip(t, p0, p1, 18) : (segSphere(p0, p1, t.pos, tr) || p1.distanceTo(t.pos) < tr))) { boom = true; victim = t; }
       else if (t && t.isDecoy && tp && segSphere(p0, p1, t.pos, tr)) boom = true;
       else {
         for (const s of game.ships) {
-          if (s.alive && s !== m.owner && s.team !== m.team && segSphere(p0, p1, s.pos, s.radius + 6)) { boom = true; victim = s; break; }
+          if (s.alive && s !== m.owner && s.team !== m.team && hitsShip(s, p0, p1, 6)) { boom = true; victim = s; break; }
         }
       }
     }
@@ -698,6 +839,48 @@ function steer(s, vd, dt, aim) {
   s.rcsCmd.copy(dv).multiplyScalar(3);
 }
 
+// Capital ship: drifts slowly toward its target, turrets track and fire on their own,
+// and the hangar launches raiders while the carrier is engaged.
+function carrierAI(s, game, dt) {
+  s.recentHits = 0;
+  const p = game.player;
+  const engaged = p && p.alive && hostileTo(game, s, p) && p.pos.distanceTo(s.pos) < (s.turretRange || 3500) + 5000;
+  if (s.anchor) {
+    // Behemoths hold station: thrusters null out any drift back toward the anchor point.
+    const back = V().subVectors(s.anchor, s.pos);
+    s.throttle = 0; s.afterburner = false; s.retro = false;
+    s.rcsCmd.copy(back).multiplyScalar(0.02).sub(s.vel).multiplyScalar(0.5);
+  } else {
+    const want = engaged ? V().subVectors(p.pos, s.pos) : forwardOf(s.obj, V());
+    const d = want.length();
+    steer(s, want.multiplyScalar(d > 2500 ? s.cruise / (d || 1) : 0), dt, d > 1 ? want.clone().normalize() : null);
+  }
+  s.launchCd = (s.launchCd ?? 6) - dt;
+  if (s.launches && engaged && s.launchCd <= 0 && game.ships.filter(o => o.alive && o.fromCarrier === s).length < 3 && game.spawnFromCarrier) {
+    s.launchCd = 22;
+    game.spawnFromCarrier(s);
+  }
+  for (const t of s.turrets) {
+    t.cd -= dt;
+    let tgt = null, bd = s.turretRange || 3500;
+    t.pivot.updateMatrixWorld();
+    const tp = V().setFromMatrixPosition(t.pivot.matrixWorld);
+    for (const o of game.ships) {
+      if (!hostileTo(game, s, o)) continue;
+      const dd = o.pos.distanceTo(tp);
+      if (dd < bd) { bd = dd; tgt = o; }
+    }
+    if (!tgt) continue;
+    // Lead the target and swing the barrels toward it.
+    const aim = V().copy(tgt.pos).addScaledVector(V().subVectors(tgt.vel, s.vel), bd / (LASER_SPEED * 0.8));
+    // lookAt turns +z toward a world point; the barrels point along -z, so aim at the mirror point.
+    t.pivot.updateMatrixWorld();
+    const pw = V().setFromMatrixPosition(t.pivot.matrixWorld);
+    t.pivot.lookAt(pw.multiplyScalar(2).sub(aim));
+    if (t.cd <= 0) { t.cd = 0.9 + Math.random() * 0.8; fireTurret(game, s, t, aim); }
+  }
+}
+
 function haulerAI(s, game, dt) {
   if (!s.dest) s.dest = { pos: s.pos.clone().addScaledVector(forwardOf(s.obj, V()), 60000) };
   s.recentHits = Math.max(0, s.recentHits - dt * 0.25);
@@ -711,6 +894,7 @@ function haulerAI(s, game, dt) {
 
 export function updateAI(s, game, dt) {
   s.rcsCmd.set(0, 0, 0);
+  if (s.capital) return carrierAI(s, game, dt);
   if (s.hauler) return haulerAI(s, game, dt);
   s.gunCd -= dt;
   s.energy = Math.min(100, s.energy + 18 * dt);

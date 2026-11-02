@@ -401,6 +401,7 @@ export const SYSTEMS = {
       { name: 'Port Lys', planet: 1, offset: [9000, 1500, -8500], accent: 0x33ffcc, market: LEGAL({ food: 0.55, water: 0.6, ore: 1.3, fuel: 1.35, med: 0.75, tech: 1.4, lux: 1.15 }) },
     ],
     belt: { center: [20000, -3000, -90000] },
+    behemoths: [{ id: 'sovereign', kind: 'dreadnought', station: 0, offset: [3800, 900, 0] }],
     navs: [
       { station: 0 }, { station: 1 },
       { name: 'Glass Belt', kind: 'belt', beltOffset: [0, 0, 11500], encounter: 0.45 },
@@ -421,10 +422,12 @@ export const SYSTEMS = {
       { name: 'Gallows Rock', planet: 1, offset: [8000, 2000, 6000], accent: 0xff3322, outpost: true, market: { food: 1.6, water: 1.5, ore: 0.8, fuel: 1.2, med: 1.8, tech: 1.2, lux: 0.7, stims: 0.6 } },
     ],
     belt: { center: [70000, 6000, -70000] },
+    behemoths: [{ id: 'leviathan', kind: 'leviathan', nav: 'Leviathan Drydock', offset: [0, 0, -3500] }],
     navs: [
       { station: 0 },
       { name: 'Bone Fields', kind: 'belt', beltOffset: [0, 0, 11500], encounter: 0.9 },
       { name: "Krell's Anchorage", kind: 'lair', pos: [-20000, 15000, 95000], encounter: 0.9 },
+      { name: 'Leviathan Drydock', kind: 'relay', pos: [95000, -12000, -40000], encounter: 0 },
       { name: 'Jump Gate: Sable Rift', kind: 'jump', to: 'sable', pos: [120000, -8000, 60000], encounter: 0.4 },
       { name: 'Jump Gate: Corvane', kind: 'jump', to: 'corvane', pos: [-125000, 5000, 20000], encounter: 0.35 },
     ],

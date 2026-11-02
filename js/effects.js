@@ -253,7 +253,7 @@ void main() {
   #include <logdepthbuf_fragment>
   float rim = pow(1.0 - abs(dot(vN, vV)), 2.2);
   float hit = pow(max(dot(vW, hitDir), 0.0), 6.0);
-  gl_FragColor = vec4(color, alpha * (rim * 0.8 + hit * 1.6));
+  gl_FragColor = vec4(color, alpha * (rim * 0.45 + hit * 0.9));
 }`;
 const BUBBLE_GEO = new THREE.SphereGeometry(1, 32, 20);
 
@@ -262,7 +262,7 @@ export class Bubbles {
   add(ship, at) {
     if (this.list.some(b => b.ship === ship && b.t > 0.2)) return;
     const mat = new THREE.ShaderMaterial({
-      uniforms: { alpha: { value: 1 }, color: { value: new THREE.Color(0.5, 1.4, 3.2) }, hitDir: { value: new THREE.Vector3() } },
+      uniforms: { alpha: { value: 1 }, color: { value: new THREE.Color(0.25, 0.7, 1.6) }, hitDir: { value: new THREE.Vector3() } },
       vertexShader: BUBBLE_VS, fragmentShader: BUBBLE_FS,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });

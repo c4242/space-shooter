@@ -16,7 +16,7 @@ export class Salvage {
   constructor(game) { this.g = game; this.pods = []; }
 
   drop(ship) {
-    const n = ship.kind === 'warlord' ? 4 : ship.kind === 'marauder' || ship.hauler ? 2 + (Math.random() < 0.5 ? 1 : 0) : Math.random() < 0.6 ? 1 : 0;
+    const n = ship.capital ? 7 : ship.kind === 'warlord' ? 4 : ship.kind === 'marauder' || ship.hauler ? 2 + (Math.random() < 0.5 ? 1 : 0) : Math.random() < 0.6 ? 1 : 0;
     for (let i = 0; i < n; i++) {
       // Pricier goods are rarer.
       const w = LOOT.map(c => 1 / Math.sqrt(c.base));

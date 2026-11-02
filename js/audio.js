@@ -61,6 +61,14 @@ function hiss({ dur = 0.3, vol = 0.2, type = 'lowpass', f0 = 1000, f1 = null, q 
 
 export const audio = {
   muted: false,
+  vol: { master: 1, music: 1, sfx: 1 },
+
+  setVolumes(v) {
+    Object.assign(this.vol, v);
+    if (!ctx) return;
+    master.gain.setTargetAtTime(this.muted ? 0 : MASTER_VOL * this.vol.master, ctx.currentTime, 0.05);
+    sfx.gain.setTargetAtTime(0.9 * this.vol.sfx, ctx.currentTime, 0.05);
+  },
 
   // Must be called from a user gesture (click / key press).
   init() {
@@ -69,11 +77,11 @@ export const audio = {
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = this.muted ? 0 : MASTER_VOL;
+    master.gain.value = this.muted ? 0 : MASTER_VOL * this.vol.master;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.ratio.value = 4;
     master.connect(comp); comp.connect(ctx.destination);
-    sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
+    sfx = ctx.createGain(); sfx.gain.value = 0.9 * this.vol.sfx; sfx.connect(master);
 
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -122,7 +130,7 @@ export const audio = {
   music(dt, active, combat) {
     if (!ctx || !mus) return;
     const t0 = ctx.currentTime;
-    mus.bus.gain.setTargetAtTime(active && mus.on ? 1 : 0, t0, 0.8);
+    mus.bus.gain.setTargetAtTime(active && mus.on ? this.vol.music : 0, t0, 0.8);
     if (!active || !mus.on) return;
     mus.t -= dt;
     if (mus.t <= 0) {
@@ -167,7 +175,7 @@ export const audio = {
 
   setMuted(m) {
     this.muted = m;
-    if (master) master.gain.setTargetAtTime(m ? 0 : MASTER_VOL, ctx.currentTime, 0.05);
+    if (master) master.gain.setTargetAtTime(m ? 0 : MASTER_VOL * this.vol.master, ctx.currentTime, 0.05);
   },
 
   engine(frac, burner, active) {

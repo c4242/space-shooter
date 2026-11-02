@@ -23,6 +23,12 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 - **Mining:** shoot asteroids to crack them open and scoop the ore chunks (water ice in Corvane's Glass Belt).
 - **Hulls:** the agile *Kestrel* you start in, or the *Bastion* heavy fighter (four guns, thicker armour, bigger hold and missile rack, slower) from the shipyard.
 - **Wingmen:** hire a wingman at a station. They fly in formation, attack pirates near you, follow you through autopilot and jump gates, and take half the bounty of their kills.
+- **Capital ships:**
+  - **Ashfang carrier Gorehaven (300 m):** turret batteries, launches raiders, appears in Hollow Reach and occasionally Sable Rift.
+  - **AV Sovereign:** an Authority dreadnought (1.3 km) stationed at Corvane Shipyards.
+  - **Ashfang Leviathan (1.5 km):** a pirate mothership at the Leviathan Drydock in Hollow Reach. Bounty 40,000 cr; bring torpedoes.
+  - Capital ships are solid, shots must hit the actual hull, and they die in long chains of explosions.
+- **Settings:** the pause screen has volume, mouse sensitivity, invert, mouse-flight and graphics-quality settings, saved in your browser.
 - **Living system:** civilian freighters fly between the stations. Pirates will prey on them, and shooting one down gets you fined.
 - **Docked at a station:**
   - **Market:** buy low and sell high at the other station.

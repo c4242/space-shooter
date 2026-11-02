@@ -24,6 +24,15 @@ function envGain(t, attack, peak, decay) {
   return g;
 }
 
+// Stereo position for the sounds being scheduled (-1 left .. 1 right).
+let curPan = 0;
+function out(node) {
+  if (Math.abs(curPan) < 0.02) { node.connect(sfx); return; }
+  const p = ctx.createStereoPanner();
+  p.pan.value = curPan;
+  node.connect(p); p.connect(sfx);
+}
+
 function tone({ type = 'sine', f0 = 440, f1 = null, dur = 0.2, vol = 0.2, attack = 0.004, delay = 0 }) {
   if (!ctx || vol < 0.003) return;
   const t = ctx.currentTime + delay;
@@ -32,7 +41,7 @@ function tone({ type = 'sine', f0 = 440, f1 = null, dur = 0.2, vol = 0.2, attack
   o.frequency.setValueAtTime(f0, t);
   if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + attack + dur);
   const g = envGain(t, attack, vol, dur);
-  o.connect(g); g.connect(sfx);
+  o.connect(g); out(g);
   o.start(t); o.stop(t + attack + dur + 0.05);
 }
 
@@ -45,7 +54,7 @@ function hiss({ dur = 0.3, vol = 0.2, type = 'lowpass', f0 = 1000, f1 = null, q 
   f.frequency.setValueAtTime(f0, t);
   if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + attack + dur);
   const g = envGain(t, attack, vol, dur);
-  s.connect(f); f.connect(g); g.connect(sfx);
+  s.connect(f); f.connect(g); out(g);
   s.start(t, Math.random() * 0.5);
   s.stop(t + attack + dur + 0.05);
 }
@@ -181,7 +190,8 @@ export const audio = {
     grav.lp.frequency.setTargetAtTime(70 + 120 * level, t, 0.3);
   },
 
-  laser(vol = 1, player = true) {
+  laser(vol = 1, player = true, pan = 0) {
+    curPan = pan;
     if (player) {
       tone({ type: 'square', f0: 1500, f1: 190, dur: 0.15, vol: 0.09 * vol });
       tone({ type: 'sawtooth', f0: 760, f1: 95, dur: 0.12, vol: 0.06 * vol });
@@ -190,15 +200,23 @@ export const audio = {
       tone({ type: 'sawtooth', f0: 900, f1: 120, dur: 0.18, vol: 0.08 * vol });
       hiss({ type: 'bandpass', f0: 1800, dur: 0.07, vol: 0.05 * vol });
     }
+
+    curPan = 0;
   },
-  missile(vol = 1) {
+  missile(vol = 1, pan = 0) {
+    curPan = pan;
     hiss({ type: 'bandpass', f0: 280, f1: 2600, dur: 0.75, vol: 0.35 * vol, attack: 0.02, q: 1.2 });
     tone({ type: 'sine', f0: 140, f1: 40, dur: 0.35, vol: 0.3 * vol });
+
+    curPan = 0;
   },
-  explosion(vol = 1, big = true) {
+  explosion(vol = 1, big = true, pan = 0) {
+    curPan = pan;
     hiss({ type: 'lowpass', f0: big ? 2200 : 1600, f1: 70, dur: big ? 1.8 : 0.9, vol: 0.7 * vol, q: 0.5 });
     tone({ type: 'sine', f0: big ? 95 : 130, f1: 28, dur: big ? 1.1 : 0.5, vol: 0.55 * vol });
     hiss({ type: 'highpass', f0: 2500, dur: 0.18, vol: 0.18 * vol });
+
+    curPan = 0;
   },
   shieldHit() {
     tone({ type: 'sine', f0: 1900, f1: 500, dur: 0.16, vol: 0.13 });

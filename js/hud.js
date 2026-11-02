@@ -87,7 +87,7 @@ export class Hud {
     ctx.font = '13px "Share Tech Mono", monospace';
     ctx.textBaseline = 'alphabetic';
     const p = g.player;
-    const flying = ['flight', 'map', 'trade', 'paused', 'docking'].includes(g.state);
+    const flying = ['flight', 'map', 'trade', 'paused'].includes(g.state);
 
     if (g.state === 'autopilot') this.drawAutopilot(ctx);
     if (p && p.alive && flying) {

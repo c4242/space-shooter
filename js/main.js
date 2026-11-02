@@ -516,6 +516,7 @@ function requestDock() {
     look: p.pos.clone(),
   };
   game.target = null;
+  hud.messages = hud.messages.filter(m => /Docking clearance/.test(m.text));
   setDash(false);
   p.obj.visible = true;
   p.vel.set(0, 0, 0);
@@ -552,13 +553,20 @@ function updateDocking(dt) {
   const u = k * k * (3 - 2 * k);
   bezier(p.pos, D.p0, D.p1, D.p2, D.p3, u);
   bezier(_bt, D.p0, D.p1, D.p2, D.p3, Math.min(1, u + 0.01)).sub(p.pos);
-  if (_bt.lengthSq() > 1e-6) faceToward(p.obj, _bt.add(p.pos), D.up);
+  if (_bt.lengthSq() < 1e-6) _bt.copy(D.p3).sub(p.pos);
+  _bt.normalize();
+  faceToward(p.obj, p.pos.clone().add(_bt), D.up);
   p.vel.set(0, 0, 0);
   p.mainThrust = 0.25 + 0.3 * Math.sin(Math.PI * Math.min(1, k * 1.2));
   p.throttle = 0; p.afterburner = false;
-  camera.position.copy(D.cam);
+  // Tracking shot: trail behind and to one side of the ship, framing it against the station.
+  const side = V().crossVectors(_bt, D.up).normalize();
+  const close = 1 - Math.min(1, p.pos.distanceTo(D.p3) / 1500);  // swing wider as the ship nears the bay
+  const want = p.pos.clone().addScaledVector(_bt, -70 - 40 * close).addScaledVector(side, 38 + 60 * close).addScaledVector(D.up, 16 + 20 * close);
+  if (!D.camInit) { camera.position.copy(want); D.camInit = true; }
+  camera.position.lerp(want, 1 - Math.exp(-3 * dt));
   camera.up.copy(D.up);
-  D.look.lerp(p.pos, 1 - Math.exp(-4 * dt));
+  D.look.lerp(p.pos.clone().lerp(D.p3, 0.15 + 0.35 * close), 1 - Math.exp(-5 * dt));
   camera.lookAt(D.look);
   audio.engine(0.25, false, true);
   if (D.t > D.T - 0.9) game.fade = Math.min(1, (D.t - (D.T - 0.9)) / 0.8);

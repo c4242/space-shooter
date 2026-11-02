@@ -928,8 +928,8 @@ function startEvent(type) {
     m.group.position.copy(at);
     m.group.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     scene.add(m.group);
-    const n = 3 + ((Math.random() * 3) | 0);
-    for (let i = 0; i < n; i++) salvage.drop({ pos: at, vel: p.vel.clone().multiplyScalar(0), radius: 140, kind: 'marauder' });
+    // Two "marauder-sized" drops: 4-6 pods in total.
+    for (let i = 0; i < 2; i++) salvage.drop({ pos: at, vel: V(), radius: 140, kind: 'marauder' });
     game.event = { type, wreck: m.group, at, t: 0, spin: V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.06), trap: Math.random() < 0.35 };
     game.target = salvage.pods[salvage.pods.length - 1] || null;
     hud.msg('Automated salvage beacon: derelict freighter detected. Cargo drifting free. No life signs.', COL.nav);

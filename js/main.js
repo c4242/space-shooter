@@ -222,6 +222,7 @@ function setSystem(id) {
   game.target = null;
   for (const n of game.navs) n.cooldown = n.kind === 'station' ? 60 : n.kind === 'jump' ? 40 : 0;
   game.trafficT = 6; game.policeT = 10 + Math.random() * 20;
+  if (game.player) spawnBehemoths();
 }
 
 function startCareer(save) {
@@ -247,6 +248,7 @@ function startCareer(save) {
   const p = new Ship(game, 'player');
   game.player = p;
   game.ships = [p];
+  spawnBehemoths();
   game.cargoCap = holdFor(game.upgrades, game.hull);
   if (save) {
     p.ammo = { ...p.ammo, ...save.ammo }; p.missileType = save.missileType || 'seeker';
@@ -344,6 +346,7 @@ game.launchFromStation = st => {
   placeAtStation(st);
   saveAt(st);
   spawnWing();
+  spawnBehemoths();
   resetChase();
   game.state = 'flight';
   game.fade = 1;
@@ -705,7 +708,7 @@ function finishAutopilot() {
   p.throttle = 0;
   p.afterburner = false;
   for (const s of game.ships) {
-    if (s.isPlayer || s.wing || !s.alive || s.pos.distanceTo(p.pos) <= 25000) continue;
+    if (s.isPlayer || s.wing || s.behemoth || !s.alive || s.pos.distanceTo(p.pos) <= 25000) continue;
     s.alive = false;
     forgetShip(s);
   }
@@ -760,6 +763,34 @@ function spawnGroup(kinds, tag = {}) {
   return ships;
 }
 
+// Behemoths are permanent fixtures of their systems (until destroyed this session).
+const behemothDown = {};
+function spawnBehemoths() {
+  const defs = SYSTEMS[game.sys].behemoths || [];
+  for (const d of defs) {
+    if (behemothDown[d.id] || game.ships.some(s => s.alive && s.behemothId === d.id)) continue;
+    const s = new Ship(game, d.kind);
+    s.behemothId = d.id;
+    let base, axis;
+    if (d.station !== undefined) {
+      const st = game.world.stations[d.station];
+      const up = V(0, 1, 0).applyQuaternion(st.group.quaternion);
+      const side = V().crossVectors(st.axis, up).normalize();
+      base = st.pos.clone().addScaledVector(side, d.offset[0]).addScaledVector(up, d.offset[1]);
+      axis = st.axis.clone();
+    } else {
+      const nav = game.navs.find(n => n.name === d.nav);
+      base = nav.pos.clone().add(V(...d.offset));
+      axis = V(1, 0, 0.35).normalize();
+    }
+    s.pos.copy(base);
+    s.anchor = base.clone();
+    faceToward(s.obj, base.clone().add(axis), V(0, 1, 0));
+    game.ships.push(s);
+  }
+}
+game.spawnBehemoths = spawnBehemoths;
+
 function spawnCarrier() {
   const p = game.player;
   const s = new Ship(game, 'carrier');
@@ -776,7 +807,7 @@ function spawnCarrier() {
 // The carrier's hangar launches raiders.
 game.spawnFromCarrier = c => {
   const r = new Ship(game, 'pirate');
-  const out = V(0, -12, -56).applyQuaternion(c.obj.quaternion).add(c.pos);
+  const out = (c.behemoth ? V(0, -c.capsule.r * 1.1, -c.capsule.half * 0.3) : V(0, -12, -56)).applyQuaternion(c.obj.quaternion).add(c.pos);
   r.pos.copy(out);
   r.obj.quaternion.copy(c.obj.quaternion);
   r.vel.copy(c.vel).add(forwardOf(c.obj).multiplyScalar(160));
@@ -889,18 +920,21 @@ game.onShipDestroyed = (s, killer) => {
   if (s.capital) {
     // Chain of secondary explosions across the hull, then the reactor goes.
     const at = s.pos.clone(), q = s.obj.quaternion.clone(), v = s.vel.clone();
-    for (let i = 0; i < 9; i++) {
-      later(0.25 + i * 0.32, () => {
-        const pos = V((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 260).applyQuaternion(q).add(at).addScaledVector(v, 0.3 * i);
-        game.fx.explosion(pos, 1.4 + Math.random(), v);
+    const len = (s.capsule ? s.capsule.half : 130) * 2, wid = s.capsule ? s.capsule.r * 2 : 70;
+    const big = s.behemoth ? 3 : 1;
+    if (s.behemoth) behemothDown[s.behemothId] = true;
+    for (let i = 0; i < 9 * big; i++) {
+      later(0.25 + i * 0.32 / Math.sqrt(big), () => {
+        const pos = V((Math.random() - 0.5) * wid, (Math.random() - 0.5) * wid * 0.6, (Math.random() - 0.5) * len).applyQuaternion(q).add(at).addScaledVector(v, 0.3 * i);
+        game.fx.explosion(pos, (1.4 + Math.random()) * Math.sqrt(big), v);
         audio.explosion(Math.max(0.3, 1 - camera.position.distanceTo(pos) / 9000), true, panAt(game, pos));
       });
     }
-    later(3.3, () => { game.fx.explosion(at, 4.5, v); audio.explosion(1, true, panAt(game, at)); game.shake = 2; hud.flash = 0.6; hud.flashRGB = '255,200,140'; });
+    later(3.3 * Math.sqrt(big), () => { game.fx.explosion(at, 4.5 * Math.sqrt(big), v); audio.explosion(1, true, panAt(game, at)); game.shake = 2; hud.flash = 0.6; hud.flashRGB = '255,200,140'; });
     // The wreck hangs on screen while it burns.
     const wreck = s.obj;
     scene.add(wreck);
-    later(3.4, () => scene.remove(wreck));
+    later(3.4 * Math.sqrt(big), () => scene.remove(wreck));
   }
   if (s.wing) {
     hud.msg(`${s.name}: I'm hit, I'm going down! ... Wingman lost.`, COL.hostile);
@@ -1252,6 +1286,13 @@ function checkCollisions(dt) {
     }
   }
   for (const st of w.stations) if (st.collide(p.pos, p.radius)) { bump(st.pos, 0); return; }
+  for (const s of game.ships) {
+    if (!s.alive || !s.capsule) continue;
+    const f = forwardOf(s.obj);
+    const tz = THREE.MathUtils.clamp(V().subVectors(p.pos, s.pos).dot(f), -s.capsule.half, s.capsule.half);
+    const axisPt = s.pos.clone().addScaledVector(f, tz);
+    if (p.pos.distanceTo(axisPt) < s.capsule.r + p.radius) { bump(axisPt, s.capsule.r); return; }
+  }
 }
 
 function scoop(pod) {
@@ -1287,7 +1328,7 @@ function updateFlight(dt) {
     storyUpdate();
   }
   // Ships that wander far away are dropped.
-  for (const s of game.ships) if (!s.isPlayer && !s.wing && s.alive && s.pos.distanceTo(p.pos) > 60000) { s.alive = false; forgetShip(s); }
+  for (const s of game.ships) if (!s.isPlayer && !s.wing && !s.behemoth && s.alive && s.pos.distanceTo(p.pos) > 60000) { s.alive = false; forgetShip(s); }
   game.ships = game.ships.filter(s => s.alive || s.isPlayer);
   for (let i = game.timers.length - 1; i >= 0; i--) {
     const tm = game.timers[i];

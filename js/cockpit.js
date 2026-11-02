@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, buildPoliceModel, buildWarlordModel, buildBastionModel, buildWingmanModel, buildCarrierModel, lockTimeFor, MISSILES, heatTarget } from './ships.js';
+import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, buildPoliceModel, buildWarlordModel, buildBastionModel, buildWingmanModel, buildCarrierModel, buildDreadnoughtModel, buildLeviathanModel, lockTimeFor, MISSILES, heatTarget } from './ships.js';
 import { STORY } from './story.js';
 import { missionSummary } from './career.js';
 import { makeStation } from './world.js';
@@ -98,6 +98,8 @@ export class Cockpit {
       freighter: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.9, 0.45)),
       smuggler: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.5, 0.4)),
       carrier: wire(buildCarrierModel().group, new THREE.Color(1.0, 0.45, 0.35)),
+      dreadnought: wire(buildDreadnoughtModel().group, new THREE.Color(0.5, 0.75, 1.0)),
+      leviathan: wire(buildLeviathanModel().group, new THREE.Color(1.0, 0.45, 0.35)),
       police: wire(buildPoliceModel().group, new THREE.Color(0.5, 0.75, 1.0)),
       warlord: wire(buildWarlordModel().group, new THREE.Color(1.0, 0.45, 0.35)),
       station: wire(makeStation(0x33ff88).group, green),

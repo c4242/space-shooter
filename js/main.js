@@ -89,7 +89,7 @@ window.sableRift = game; // handy for debugging from the console
 
 game.world = getWorld(scene, 'sable');
 game.navs = game.world.navs;
-game.fx = new Particles(scene);
+game.fx = new Particles(scene, 6000, LOW_GFX ? 1 : 3);
 game.bubbles = new Bubbles(scene);
 const salvage = game.salvage = new Salvage(game);
 const dust = new Dust(scene);

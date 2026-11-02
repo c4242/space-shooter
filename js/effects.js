@@ -54,7 +54,7 @@ const WAVE_TEX = (() => {
 const DEBRIS_GEO = new THREE.BoxGeometry(1, 1, 1);
 
 export class Particles {
-  constructor(scene, max = 6000) {
+  constructor(scene, max = 6000, lights = 3) {
     this.max = max; this.next = 0;
     this.pos = new Float32Array(max * 3); this.vel = new Float32Array(max * 3);
     this.col = new Float32Array(max * 4); this.size = new Float32Array(max);
@@ -83,7 +83,7 @@ export class Particles {
     // A small fixed pool of point lights so explosions light up nearby hulls and rocks
     // (a fixed count avoids shader recompiles).
     this.flashes = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < lights; i++) {
       const l = new THREE.PointLight(0xffa860, 0, 2500, 2);
       scene.add(l);
       this.flashes.push({ l, t: 1, life: 1, peak: 0 });

@@ -124,41 +124,134 @@ export function buildPirateModel() {
   return { group: g, glows, gunPorts: [new THREE.Vector3(-4.9, 0, -8), new THREE.Vector3(4.9, 0, -8)], exhaust: new THREE.Vector3(0, 0, 9), engineColor: [3, 1, 0.3] };
 }
 
+
+export function buildMarauderModel() {
+  const outer = new THREE.Group();
+  const m = buildPirateModel();
+  m.group.scale.setScalar(1.45);
+  outer.add(m.group);
+  const hull = mat(0x3d3834, { roughness: 0.6 }), dark = mat(0x1a1817, { roughness: 0.7 });
+  const red = mat(0x6e1410, { emissive: 0x7a0c04, emissiveIntensity: 1.4 });
+  for (const sx of [-1, 1]) {
+    part(outer, new THREE.CylinderGeometry(1.6, 1.9, 16, 10), hull, [sx * 9.5, -1, 2], [Math.PI / 2, 0, 0]);
+    part(outer, new THREE.ConeGeometry(1.6, 3.5, 10), red, [sx * 9.5, -1, -7.7], [-Math.PI / 2, 0, 0]);
+    part(outer, new THREE.BoxGeometry(5, 0.6, 3), dark, [sx * 6.5, -1, 2]);
+  }
+  part(outer, new THREE.BoxGeometry(3.4, 1.8, 4), dark, [0, 2.8, 1]);
+  part(outer, new THREE.CylinderGeometry(0.35, 0.35, 5, 6), dark, [0, 3, -2.5], [Math.PI / 2, 0, 0]);
+  const glows = [...m.glows, glow(outer, new THREE.Color(3.2, 1.1, 0.3), [-9.5, -1, 10.6], 5), glow(outer, new THREE.Color(3.2, 1.1, 0.3), [9.5, -1, 10.6], 5)];
+  return { group: outer, glows, gunPorts: [new THREE.Vector3(-7.1, 0, -11.6), new THREE.Vector3(7.1, 0, -11.6), new THREE.Vector3(0, 3, -5)], exhaust: new THREE.Vector3(0, 0, 13), engineColor: [3, 1, 0.3] };
+}
+
+export function buildFreighterModel() {
+  const g = new THREE.Group();
+  const hull = mat(0xb9ab8c, { metalness: 0.35, roughness: 0.55 }), dark = mat(0x34322e, { roughness: 0.7 });
+  const stripe = mat(0xd9a51a, { metalness: 0.2, emissive: 0x3a2800 });
+  const win = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xffd9a0, emissiveIntensity: 1.6 });
+  part(g, new THREE.BoxGeometry(11, 8, 13), hull, [0, 1, -30]);
+  part(g, new THREE.BoxGeometry(8, 1.2, 0.4), win, [0, 3, -36.6]);
+  part(g, new THREE.BoxGeometry(5, 5, 54), dark, [0, 0, 0]);
+  const colors = [0xa83a2a, 0x2a5a9a, 0x7d7f84, 0x3f7a3a, 0xb07a20, 0x5a4a8a];
+  let k = 0;
+  for (const z of [-15, -1, 13]) for (const sx of [-1, 1]) {
+    part(g, new THREE.BoxGeometry(8.5, 8.5, 12.5), mat(colors[k++ % colors.length], { metalness: 0.3, roughness: 0.6 }), [sx * 5.4, 0, z]);
+  }
+  part(g, new THREE.BoxGeometry(16, 10, 9), hull, [0, 0, 29]);
+  part(g, new THREE.BoxGeometry(16.2, 1.2, 9.2), stripe, [0, 2.5, 29]);
+  const glows = [];
+  for (const sx of [-1, 1]) {
+    part(g, new THREE.CylinderGeometry(2.2, 2.8, 4, 12), dark, [sx * 4.5, 0, 35], [Math.PI / 2, 0, 0]);
+    glows.push(glow(g, new THREE.Color(3, 2, 1), [sx * 4.5, 0, 37.5], 9));
+  }
+  glow(g, new THREE.Color(3, 0.3, 0.3), [-8.2, 5, 29], 2);
+  glow(g, new THREE.Color(0.3, 3, 0.5), [8.2, 5, 29], 2);
+  return { group: g, glows, gunPorts: [new THREE.Vector3(0, 5, -30)], exhaust: new THREE.Vector3(0, 0, 39), engineColor: [3, 2, 1] };
+}
+
+// ---------------------------------------------------------------------------
+// Player upgrades (bought in the station shipyard)
+// ---------------------------------------------------------------------------
+
+export const UPGRADES = {
+  guns: { name: 'Guns', levels: ['Twin Pulse Laser', 'Pulse Laser Mk II', 'Twin Ion Repeater', 'Plasma Repeater'], costs: [2500, 6000, 12000] },
+  shields: { name: 'Shields', levels: ['Class 1 Shield', 'Class 2 Shield', 'Class 3 Shield', 'Class 4 Shield'], costs: [2000, 5000, 10000] },
+  armor: { name: 'Armor', levels: ['Durasteel Plating', 'Composite Plating', 'Ceramic Plating', 'Isometal Plating'], costs: [1500, 4000, 8000] },
+  engine: { name: 'Engine', levels: ['Stock Drive', 'Tuned Drive', 'Racing Drive', 'Military Drive'], costs: [2500, 6000, 12000] },
+  hold: { name: 'Cargo Hold', levels: ['25 units', '40 units', '55 units', '70 units'], costs: [1500, 4000, 9000] },
+};
+
+export function applyUpgrades(p, up) {
+  const armorFrac = p.armorMax ? p.armor / p.armorMax : 1;
+  p.gunDmg = 6 + 1.6 * up.guns;
+  p.fireRate = 0.13 - 0.01 * up.guns;
+  p.gunName = UPGRADES.guns.levels[up.guns];
+  p.shieldMax = 120 + 40 * up.shields;
+  p.shieldRegen = 9 + 3 * up.shields;
+  p.armorMax = 160 + 60 * up.armor;
+  p.armor = p.armorMax * armorFrac;
+  p.maxSpeed = 420 + 40 * up.engine;
+  p.abSpeed = 950 + 80 * up.engine;
+  p.accel = 220 + 25 * up.engine;
+  const k = 1 + 0.08 * up.engine;
+  p.turnRates = [1.35 * k, 1.1 * k, 2.3 * k];
+  p.shieldF = Math.min(p.shieldF ?? p.shieldMax, p.shieldMax);
+  p.shieldR = Math.min(p.shieldR ?? p.shieldMax, p.shieldMax);
+}
+export const holdFor = up => 25 + 15 * up.hold;
+
 // ---------------------------------------------------------------------------
 // Ship
 // ---------------------------------------------------------------------------
 
 const CALLSIGNS = ['Vex', 'Grisk', 'Mordu', 'Slade', 'Hask', 'Rook', 'Jagg', 'Ossa', 'Brine', 'Kord', 'Sill', 'Tarn'];
+const HAULERS = ['Kesra', 'Orrin', 'Bellwether', 'Long Haul', 'Patience', 'Marigold', 'Ostrava', 'Nine Lives'];
+const pick = a => a[(Math.random() * a.length) | 0];
+const BUILDERS = { player: buildPlayerModel, pirate: buildPirateModel, marauder: buildMarauderModel, freighter: buildFreighterModel };
 
 export class Ship {
   constructor(game, kind) {
     this.kind = kind;
     this.isPlayer = kind === 'player';
-    this.team = this.isPlayer ? 'player' : 'pirate';
-    const m = this.isPlayer ? buildPlayerModel() : buildPirateModel();
+    this.team = this.isPlayer ? 'player' : kind === 'freighter' ? 'civ' : 'pirate';
+    const m = BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
     this.exhaust = m.exhaust; this.engineColor = m.engineColor;
     this.vel = V(); this.gravVel = V(); this.angVel = V();
     this.speed = 0; this.setSpeed = 0; this.afterburner = false; this.gAccel = 0;
     this.alive = true; this.lastHit = -10; this.gunCd = 0; this.energy = 100;
-    this.lockTime = 0; this.recentHits = 0; this.trailT = 0;
+    this.lockTime = 0; this.recentHits = 0; this.trailT = 0; this.smokeT = 0; this.retarget = 0;
     if (this.isPlayer) {
+      Object.assign(this, { name: 'You', radius: 11, shotCost: 4.5, missiles: 4, maxMissiles: 6, decoys: 8, maxDecoys: 10, abFuel: 100 });
+      applyUpgrades(this, game.upgrades);
+      this.armor = this.armorMax;
+    } else if (kind === 'pirate') {
       Object.assign(this, {
-        name: 'You', maxSpeed: 420, abSpeed: 950, accel: 220, radius: 11,
-        shieldMax: 120, armorMax: 160, gunDmg: 6, fireRate: 0.13, shotCost: 4.5,
-        missiles: 4, maxMissiles: 6, decoys: 8, maxDecoys: 10, abFuel: 100, turnRates: [1.35, 1.1, 2.3],
-      });
-    } else {
-      Object.assign(this, {
-        name: 'Ashfang ' + CALLSIGNS[(Math.random() * CALLSIGNS.length) | 0],
+        name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER',
         maxSpeed: 360, abSpeed: 700, accel: 200, radius: 10,
         shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5,
         missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25,
-        aiState: 'attack', aiTimer: 0, evadeDir: V(), bounty: 250 + ((Math.random() * 6) | 0) * 25,
+        bounty: 250 + ((Math.random() * 6) | 0) * 25,
+      });
+    } else if (kind === 'marauder') {
+      Object.assign(this, {
+        name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER',
+        maxSpeed: 300, abSpeed: 600, accel: 160, radius: 16,
+        shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4,
+        missiles: 2, turn: 0.8 + Math.random() * 0.15,
+        bounty: 650 + ((Math.random() * 6) | 0) * 25,
+      });
+    } else {
+      Object.assign(this, {
+        name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER',
+        maxSpeed: 190, abSpeed: 280, accel: 60, radius: 34,
+        shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35,
       });
     }
-    this.shieldF = this.shieldR = this.shieldMax;
-    this.armor = this.armorMax;
+    if (!this.isPlayer) {
+      Object.assign(this, { aiState: 'attack', aiTimer: 0, evadeDir: V(), aiTarget: null });
+      this.shieldF = this.shieldR = this.shieldMax;
+      this.armor = this.armorMax;
+    }
     game.scene.add(this.obj);
   }
   get pos() { return this.obj.position; }
@@ -356,10 +449,12 @@ export function hitShipWith(game, s, dmg, fromPos, src, big = false) {
   const r = applyDamage(s, dmg, fromPos, game.time);
   const at = _e.copy(fromPos).sub(s.pos).setLength(s.radius * 0.8).add(s.pos);
   game.fx.sparks(at, r.armor ? [4, 2, 0.6] : [0.8, 1.8, 4], big ? 40 : 12);
+  if (r.shield && game.bubbles && !(s.isPlayer && game.view === 'cockpit')) game.bubbles.add(s, at);
   if (s.isPlayer) game.onPlayerHit(r, dmg);
   else {
     s.recentHits += 1;
     if (src && src.isPlayer) audio.hitConfirm();
+    if (s.team === 'civ' && game.onCivHit) game.onCivHit(s, src);
   }
   if (r.dead && s.alive) destroyShip(game, s, src);
 }
@@ -382,8 +477,33 @@ export function destroyShip(game, s, killer) {
 // Pirate AI
 // ---------------------------------------------------------------------------
 
+function updateFreighterAI(s, game, dt) {
+  s.recentHits = Math.max(0, s.recentHits - dt * 0.25);
+  const dest = s.dest;
+  const to = _c.subVectors(dest.pos, s.pos);
+  const d = to.length();
+  s.setSpeed = s.maxSpeed;
+  s.afterburner = s.recentHits > 0.5;
+  turnToward(s.obj, to.divideScalar(d || 1), s.turn * dt);
+  if (d < 1400) { s.alive = false; s.docked = true; game.scene.remove(s.obj); }
+}
+
 export function updateAI(s, game, dt) {
-  const p = game.player;
+  if (s.kind === 'freighter') return updateFreighterAI(s, game, dt);
+  // Pick a victim every few seconds: the player is preferred, nearby freighters are fair game.
+  s.retarget -= dt;
+  if (s.retarget <= 0 || !s.aiTarget || !s.aiTarget.alive) {
+    s.retarget = 3 + Math.random() * 2;
+    let best = game.player && game.player.alive ? game.player : null;
+    let bd = best ? best.pos.distanceTo(s.pos) * 0.7 : Infinity;
+    for (const o of game.ships) {
+      if (!o.alive || o.team !== 'civ') continue;
+      const d = o.pos.distanceTo(s.pos);
+      if (d < bd && d < 9000) { bd = d; best = o; }
+    }
+    s.aiTarget = best;
+  }
+  const p = s.aiTarget || game.player;
   const pos = s.pos;
   const bh = game.world.blackHole;
   const fromBH = _a.subVectors(pos, bh.pos);

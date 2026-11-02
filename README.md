@@ -11,11 +11,18 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 - **HUD:** target brackets, a lead indicator showing where to aim, missile lock-on, and nav and off-screen markers.
 - **Star system:** a sun, three generated planets (one with rings), an asteroid belt, two trading stations and five nav points.
 - **Black hole:** the *Sable Rift*. Its gravity pulls harder the closer you get, it has a glowing accretion disk and bends light around it, and crossing the event horizon kills you.
-- **Combat:** twin lasers, homing missiles that need a lock, decoys, and pirate fighters with their own AI, missiles and bounties.
-- **Trade:** buy cheap at one station and sell high at the other. Stations also repair armour, refuel the afterburner, and sell missiles and decoys.
+- **Combat:** twin lasers, homing missiles that need a lock, decoys, shield-impact flashes and smoking damaged ships. Two pirate types: nimble Raiders and heavily armed Marauders. Each has its own AI and missiles and pays a bounty.
+- **Living system:** civilian freighters fly between the stations. Pirates will prey on them, and shooting one down gets you fined.
+- **Docked at a station:**
+  - **Market:** buy low and sell high at the other station.
+  - **Contracts:** bounty hunts at a nav point, or cargo deliveries to the other station (up to 3 at once).
+  - **Shipyard:** upgrade guns, shields, armour, engine and cargo hold.
+  - **Services:** repairs, afterburner fuel, missiles and decoys.
+- **Career save:** progress is saved in your browser whenever you dock or launch. After dying you can reload your last save or start over.
 - **Autopilot:** a cinematic external shot of your ship streaking across the screen, then you arrive at the selected nav point.
-- **Graphics:** bloom, tone mapping, procedural textures, particle explosions and a lensing effect.
-- **Sound:** all effects are generated in code with the Web Audio API, so there are no audio files.
+- **Graphics:** bloom, tone mapping, procedural textures, particle explosions, space dust streaks and a lensing effect.
+- **Sound:** all effects and the ambient music (with a combat layer) are generated in code with the Web Audio API, so there are no audio files.
+- **Gamepad:** supported with the standard controller layout.
 
 ## Controls
 
@@ -32,7 +39,9 @@ A 3D space combat and trading game that runs in the browser, in the spirit of cl
 | Navigation | **N** cycle nav points, **M** nav map (click to select), **A** autopilot |
 | Docking | **D** within 2.2 km of a station |
 | External view | **V** |
-| Pause / help, mute | **P**, **Esc** or **H**; **K** |
+| Pause / help | **P**, **Esc** or **H** |
+| Music / mute all | **U** / **K** |
+| Gamepad | left stick pitch/yaw, right stick roll, RT fire, LT afterburner, A missile, B decoy, X/Y targets, RB/LB throttle, D-pad autopilot/dock/nav/map, Start pause, Back view |
 
 Autopilot doesn't work with hostiles nearby, with an incoming missile, or inside the black hole's gravity well.
 
@@ -56,7 +65,8 @@ Then open http://localhost:8000.
 | `js/ships.js` | Ship models, flight model, pirate AI, lasers, missiles, decoys, damage |
 | `js/hud.js` | HUD overlay: crosshair, target brackets, lead indicator, nav markers, messages |
 | `js/cockpit.js` | Cockpit frame, console instruments, radar, warning lights, wireframe screens |
-| `js/ui.js` | Nav map, trade screen, menus |
+| `js/ui.js` | Nav map, docked screen (market, contracts, shipyard, services), menus |
+| `js/career.js` | Save/load and contract generation |
 | `js/effects.js` | GPU particle system (explosions, trails, sparks) |
 | `js/lensing.js` | Black-hole lensing post-process shader |
 | `js/audio.js` | Synthesized sound effects and engine/gravity ambience |

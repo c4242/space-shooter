@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildPlayerModel, buildPirateModel, LOCK_TIME } from './ships.js';
+import { buildPlayerModel, buildPirateModel, buildMarauderModel, buildFreighterModel, LOCK_TIME } from './ships.js';
+import { missionSummary } from './career.js';
 import { makeStation } from './world.js';
 import { fmtDist } from './hud.js';
 
@@ -90,6 +91,8 @@ export class Cockpit {
     this.models = {
       player: wire(buildPlayerModel().group, green),
       pirate: wire(buildPirateModel().group, green),
+      marauder: wire(buildMarauderModel().group, green),
+      freighter: wire(buildFreighterModel().group, new THREE.Color(1.0, 0.9, 0.45)),
       station: wire(makeStation(0x33ff88).group, green),
     };
     for (const m of Object.values(this.models)) { m.visible = false; this.scene.add(m); }
@@ -271,6 +274,16 @@ export class Cockpit {
     this.drawRightCluster(c, t);
     this.drawWeapons(c, L.scrL, p);
     this.drawTargeting(c, L.scrR, t);
+    // Heavy damage makes the electronics glitch.
+    const hp = p.armor / p.armorMax;
+    if ((hp < 0.35 && Math.random() < 0.08 * (1.4 - hp)) || g.hud.flash > 0.35) {
+      for (const s of [L.scrL, L.scrR]) {
+        c.fillStyle = `rgba(0,0,0,${0.4 + Math.random() * 0.5})`;
+        c.fillRect(s.x, s.y, s.w, s.h);
+        c.fillStyle = 'rgba(160,255,170,0.25)';
+        for (let i = 0; i < 6; i++) c.fillRect(s.x, s.y + Math.random() * s.h, s.w, 1 + Math.random() * 3);
+      }
+    }
   }
 
   drawClusters(c, t) {
@@ -293,7 +306,7 @@ export class Cockpit {
     const blink = (t * 2.2 % 1) < 0.55;
     const sh = (p.shieldF + p.shieldR) / (2 * p.shieldMax), ar = p.armor / p.armorMax;
     const incoming = g.missiles.some(m => m.target === p);
-    const tracked = g.ships.some(s => s.alive && s.team === 'pirate' && s.lockTime > 1);
+    const tracked = g.ships.some(s => s.alive && s.team === 'pirate' && s.aiTarget === p && s.lockTime > 1);
     const items = [
       ['SHLD', sh < 0.15 ? 'red*' : sh < 0.4 ? 'amber' : ''],
       ['ARMR', ar < 0.3 ? 'red*' : ar < 0.7 ? 'amber' : ''],
@@ -389,7 +402,7 @@ export class Cockpit {
     for (const st of g.world.stations) if (st.pos.distanceTo(p.pos) < 120000) plot(st.pos, '#9dffb0', s, 'sq', st === g.target);
     const nav = g.navs[g.navIndex];
     if (nav) plot(nav.pos, '#7fd8ff', s * 1.3, 'dia');
-    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, '#ff5a3a', s, 'circle', sh === g.target);
+    for (const sh of g.ships) if (sh.alive && !sh.isPlayer && sh.pos.distanceTo(p.pos) < 25000) plot(sh.pos, sh.team === 'civ' ? '#ffd36b' : '#ff5a3a', sh.team === 'civ' ? s * 1.2 : s, 'circle', sh === g.target);
     for (const m of g.missiles) if (m.mesh.position.distanceTo(p.pos) < 8000) plot(m.mesh.position, '#ffe066', s * 0.8, 'circle');
     c.restore();
     // Nav / gravity readout under the radar
@@ -459,7 +472,9 @@ export class Cockpit {
     const fs = Math.max(9, 10.5 * u);
     label(c, 'WEAPON SYSTEMS', s.x + s.w / 2, s.y + 11 * u, fs, phos(0.95));
     c.fillStyle = phos(0.5); c.fillRect(s.x + 10 * u, s.y + 19 * u, s.w - 20 * u, 1);
-    label(c, 'Gun: Twin Pulse Laser', s.x + 10 * u, s.y + 30 * u, fs * 0.92, phos(0.85), 'left');
+    label(c, `Gun: ${p.gunName}`, s.x + 10 * u, s.y + 30 * u, fs * 0.92, phos(0.85), 'left');
+    const job = g.missions[0];
+    if (job) label(c, `Job: ${missionSummary(g, job)}`, s.x + 10 * u, s.y + s.h - 24 * u, fs * 0.85, '#ffd36b', 'left');
     label(c, `Missile: Seeker x${p.missiles}`, s.x + 10 * u, s.y + 43 * u, fs * 0.92, p.missiles ? phos(0.85) : RED, 'left');
     label(c, `CR ${g.credits.toLocaleString()}`, s.x + 10 * u, s.y + s.h - 10 * u, fs * 0.92, '#ffe066', 'left');
     label(c, `HOLD ${g.cargoUsed()}/${g.cargoCap}`, s.x + s.w - 10 * u, s.y + s.h - 10 * u, fs * 0.92, phos(0.85), 'right');
@@ -477,6 +492,7 @@ export class Cockpit {
       label(c, 'T cycle  ·  R nearest hostile', s.x + s.w / 2, s.y + s.h / 2 + 16 * u, fs * 0.85, phos(0.45));
     } else {
       const hostile = tg.team === 'pirate';
+      if (tg.cls) label(c, tg.cls, s.x + s.w - 10 * u, s.y + 30 * u, fs * 0.8, hostile ? '#ff7a6a' : '#ffd36b', 'right');
       label(c, `Target: ${tg.name}`, s.x + 10 * u, s.y + 30 * u, fs * 0.92, hostile ? '#ff7a6a' : phos(0.9), 'left');
       label(c, `Range: ${fmtDist(tg.pos.distanceTo(p.pos))}`, s.x + 10 * u, s.y + 43 * u, fs * 0.92, hostile ? '#ff7a6a' : phos(0.9), 'left');
       if (tg.team) {
@@ -535,7 +551,7 @@ export class Cockpit {
 
     // Target, oriented as you see it
     const tg = g.target;
-    const tm = tg ? (tg.isStation ? this.models.station : tg.team ? this.models.pirate : null) : null;
+    const tm = tg ? (tg.isStation ? this.models.station : this.models[tg.kind] || null) : null;
     d = job(L.scrR, tm, m => {
       const src = tg.isStation ? tg.group : tg.obj;
       m.quaternion.copy(g.camera.quaternion).invert().multiply(src.quaternion);

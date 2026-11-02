@@ -6,13 +6,14 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createWorld } from './world.js';
-import { Particles } from './effects.js';
+import { Particles, Bubbles, Dust } from './effects.js';
 import { LensingShader } from './lensing.js';
 import {
   Ship, forwardOf, upOf, rightOf, faceToward, updateShipMotion, updateAI,
   fireLasers, fireMissile, updateLasers, updateMissiles, launchDecoy, updateDecoys,
-  hitShipWith, LOCK_TIME,
+  hitShipWith, LOCK_TIME, applyUpgrades, holdFor,
 } from './ships.js';
+import { hasSave, loadSave, saveGame, missionSummary } from './career.js';
 import { Hud, fmtDist } from './hud.js';
 import { UI } from './ui.js';
 import { Cockpit } from './cockpit.js';
@@ -63,6 +64,7 @@ const game = {
   player: null, target: null, navIndex: 1,
   state: 'menu', view: 'cockpit', time: 0,
   credits: 0, cargo: {}, cargoCap: 25, kills: 0,
+  upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 }, missions: [], missionSeq: 0, trafficT: 8,
   invertPitch: false, mouseFlight: true,
   mouse: { x: innerWidth / 2, y: innerHeight / 2, inside: false, left: false },
   ap: null, fade: 0, shake: 0, dashVisible: false, dashH: 0,
@@ -73,10 +75,16 @@ window.sableRift = game; // handy for debugging from the console
 game.world = createWorld(scene);
 game.navs = game.world.navs;
 game.fx = new Particles(scene);
+game.bubbles = new Bubbles(scene);
+const dust = new Dust(scene);
 const hud = game.hud = new Hud(game);
 const ui = game.ui = new UI(game);
 const cockpit = game.cockpit = new Cockpit(game);
 
+game.applyUpgrades = () => {
+  applyUpgrades(game.player, game.upgrades);
+  game.cargoCap = holdFor(game.upgrades);
+};
 game.cargoUsed = () => Object.values(game.cargo).reduce((a, c) => a + c.qty, 0);
 const later = (t, fn) => game.timers.push({ t, fn });
 
@@ -120,34 +128,64 @@ addEventListener('resize', () => {
 // ---------------------------------------------------------------------------
 
 function clearCombat() {
-  for (const s of game.ships) if (!s.isPlayer) scene.remove(s.obj);
+  for (const s of game.ships) {
+    if (s.isPlayer) continue;
+    scene.remove(s.obj);
+    if (s.missionId) { const m = game.missions.find(x => x.id === s.missionId); if (m) m.spawned = false; }
+  }
   for (const L of game.lasers) scene.remove(L.mesh);
   for (const m of game.missiles) scene.remove(m.mesh);
   game.ships = game.ships.filter(s => s.isPlayer);
   game.lasers = []; game.missiles = []; game.decoys = [];
 }
 
-function newGame() {
+function startCareer(save) {
   audio.init();
   clearCombat();
   if (game.player) scene.remove(game.player.obj);
+  Object.assign(game, {
+    credits: 1500, cargo: {}, kills: 0, target: null, time: 0, view: 'cockpit', navIndex: 1, timers: [],
+    deathShown: false, shake: 0, missions: [], missionSeq: 0, trafficT: 6,
+    upgrades: { guns: 0, shields: 0, armor: 0, engine: 0, hold: 0 },
+  });
+  if (save) {
+    Object.assign(game, {
+      credits: save.credits, cargo: save.cargo || {}, kills: save.kills || 0, navIndex: save.navIndex ?? 1,
+      missions: save.missions || [], missionSeq: save.missionSeq || 0, upgrades: { ...game.upgrades, ...save.upgrades },
+    });
+    for (const m of game.missions) if (m.type === 'bounty') m.spawned = false;
+  }
   const p = new Ship(game, 'player');
   game.player = p;
   game.ships = [p];
-  Object.assign(game, { credits: 1500, cargo: {}, kills: 0, target: null, time: 0, view: 'cockpit', navIndex: 1, timers: [], deathShown: false, shake: 0 });
+  game.cargoCap = holdFor(game.upgrades);
+  if (save) {
+    p.missiles = save.missiles; p.decoys = save.decoys; p.abFuel = save.abFuel;
+    p.armor = p.armorMax * (save.armorFrac ?? 1);
+  }
   for (const n of game.navs) n.cooldown = n.kind === 'station' ? 90 : 0;
-  placeAtStation(game.world.stations[0]);
+  const st = game.world.stations[save ? save.station : 0] || game.world.stations[0];
+  placeAtStation(st);
   p.obj.visible = false;
   game.state = 'flight';
   game.fade = 1;
   ui.hideMenu();
   setDash(true);
   hud.messages = [];
-  later(0.6, () => hud.msg('Meridian Highport Control: Launch clear. Fly safe, pilot.', COL.comm));
-  later(4, () => hud.msg('Nav is set to Tolvar Refinery. Press A for autopilot, M for the nav map.', COL.nav));
-  later(8, () => hud.msg('Trade tip: dock with D, buy low, sell at the other station.', COL.comm));
-  later(12, () => hud.msg('Warning: stay well clear of the Sable Rift black hole.', COL.warn));
+  if (save) {
+    later(0.6, () => hud.msg(`${st.name} Control: Welcome back, pilot. Launch clear.`, COL.comm));
+    if (game.missions.length) later(3, () => hud.msg(`Active contracts: ${game.missions.length}. Check the left screen.`, COL.nav));
+  } else {
+    later(0.6, () => hud.msg('Meridian Highport Control: Launch clear. Fly safe, pilot.', COL.comm));
+    later(4, () => hud.msg('Nav is set to Tolvar Refinery. Press A for autopilot, M for the nav map.', COL.nav));
+    later(8, () => hud.msg('Dock with D: trade cargo, take contracts and upgrade your ship.', COL.comm));
+    later(12, () => hud.msg('Warning: stay well clear of the Sable Rift black hole.', COL.warn));
+  }
 }
+const newGame = () => startCareer(null);
+const continueGame = () => { const sv = loadSave(); startCareer(sv); };
+
+function saveAt(st) { saveGame(game, game.world.stations.indexOf(st)); }
 
 function placeAtStation(st) {
   const p = game.player;
@@ -173,15 +211,20 @@ function resume() {
   game.state = 'flight';
 }
 
-document.getElementById('menuBtn').addEventListener('click', () => {
+function menuPrimary() {
   audio.init();
   if (game.state === 'paused') resume();
+  else if (hasSave() && (game.state === 'menu' || game.state === 'dead')) continueGame();
   else newGame();
-});
+}
+document.getElementById('menuBtn').addEventListener('click', menuPrimary);
+document.getElementById('menuBtn2').addEventListener('click', () => { audio.init(); newGame(); });
+ui.showMenu('start');
 
 game.launchFromStation = st => {
   ui.closeTrade();
   placeAtStation(st);
+  saveAt(st);
   game.state = 'flight';
   game.fade = 1;
   hud.msg(`${st.name} Control: Launch clear.`, COL.comm);
@@ -317,7 +360,11 @@ function finishAutopilot() {
   p.gravVel.set(0, 0, 0);
   p.afterburner = false;
   // Anything left far behind is gone.
-  for (const s of game.ships) if (!s.isPlayer && s.alive && s.pos.distanceTo(p.pos) > 25000) { scene.remove(s.obj); s.alive = false; }
+  for (const s of game.ships) {
+    if (s.isPlayer || !s.alive || s.pos.distanceTo(p.pos) <= 25000) continue;
+    scene.remove(s.obj); s.alive = false;
+    if (s.missionId) { const m = game.missions.find(x => x.id === s.missionId); if (m) m.spawned = false; }
+  }
   for (const L of game.lasers) scene.remove(L.mesh);
   for (const m of game.missiles) scene.remove(m.mesh);
   game.lasers = []; game.missiles = []; game.decoys = [];
@@ -344,12 +391,13 @@ function cargoValue() {
   return v;
 }
 
-function spawnPirates(n) {
+function spawnPirates(n, mission = null, heavy = 0) {
   const p = game.player;
   const f = forwardOf(p.obj);
   const base = p.pos.clone().addScaledVector(f, 4200);
   for (let i = 0; i < n; i++) {
-    const s = new Ship(game, 'pirate');
+    const s = new Ship(game, i < heavy ? 'marauder' : 'pirate');
+    if (mission) s.missionId = mission.id;
     s.pos.copy(base).add(V((Math.random() - 0.5) * 2400, (Math.random() - 0.5) * 1600, (Math.random() - 0.5) * 2400));
     faceToward(s.obj, p.pos, V(0, 1, 0));
     s.speed = s.setSpeed = s.maxSpeed * 0.8;
@@ -357,7 +405,7 @@ function spawnPirates(n) {
     game.ships.push(s);
   }
   hud.msg(PIRATE_LINES[(Math.random() * PIRATE_LINES.length) | 0], COL.hostile);
-  hud.msg(`Contact: ${n} Ashfang raider${n > 1 ? 's' : ''} inbound!`, COL.warn);
+  hud.msg(`Contact: ${n} Ashfang ${heavy ? 'ships, including a Marauder,' : `raider${n > 1 ? 's' : ''}`} inbound!`, COL.warn);
   audio.warning();
 }
 
@@ -367,22 +415,102 @@ function checkEncounters(dt) {
     nav.cooldown = Math.max(0, nav.cooldown - dt);
     if (nav.cooldown > 0 || nav.pos.distanceTo(p.pos) > 9000) continue;
     nav.cooldown = 150;
-    if (Math.random() < nav.encounter) {
+    const ni = game.navs.indexOf(nav);
+    const job = game.missions.find(m => m.type === 'bounty' && m.navIndex === ni && !m.spawned);
+    if (job) {
+      job.spawned = true;
+      const left = job.count - job.killed;
+      later(1.5, () => {
+        if (game.state !== 'flight' && game.state !== 'map') { job.spawned = false; return; }
+        hud.msg(`Contract target sighted: ${left} raider${left > 1 ? 's' : ''}.`, COL.warn);
+        spawnPirates(left, job, job.heavy && job.killed === 0 ? 1 : 0);
+      });
+      continue;
+    }
+    let chance = nav.encounter;
+    if (nav.kind === 'station' && game.cargo.contract?.qty) chance = 0.45;
+    if (Math.random() < chance) {
       const n = 1 + ((Math.random() * 2) | 0) + (cargoValue() > 3000 ? 1 : 0);
-      later(1.5 + Math.random() * 2, () => { if (game.state === 'flight' || game.state === 'map') spawnPirates(n); });
+      const heavy = n >= 2 && Math.random() < 0.3 ? 1 : 0;
+      later(1.5 + Math.random() * 2, () => { if (game.state === 'flight' || game.state === 'map') spawnPirates(n, null, heavy); });
     }
   }
 }
 
 game.onShipDestroyed = (s, killer) => {
   if (game.target === s) game.target = null;
+  if (s.team === 'civ') {
+    if (killer && killer.isPlayer) {
+      const fine = Math.min(game.credits, 2500);
+      game.credits -= fine;
+      hud.msg(`System Authority: civilian vessel destroyed. You are fined ${fine} cr.`, COL.hostile);
+      audio.denied();
+    } else hud.msg(`${s.name} has been destroyed by raiders.`, COL.warn);
+    return;
+  }
   if (killer && killer.isPlayer) {
     game.credits += s.bounty;
     game.kills++;
     hud.msg(`${s.name} destroyed. Bounty +${s.bounty} cr`, COL.good);
     audio.cash();
   }
+  if (s.missionId) {
+    const m = game.missions.find(x => x.id === s.missionId);
+    if (m) {
+      m.killed++;
+      if (m.killed >= m.count) {
+        game.missions.splice(game.missions.indexOf(m), 1);
+        game.credits += m.reward;
+        later(0.8, () => { hud.msg(`Contract complete: ${m.client} pays ${m.reward.toLocaleString()} cr.`, COL.good); audio.chime(); });
+      } else hud.msg(`Contract: ${m.killed}/${m.count} raiders destroyed.`, COL.nav);
+    }
+  }
 };
+
+game.onCivHit = (s, src) => {
+  if (!s.maydayT || game.time - s.maydayT > 8) {
+    s.maydayT = game.time;
+    if (src && src.isPlayer) hud.msg(`${s.name}: Hold your fire! We're civilians!`, COL.warn);
+    else hud.msg(`${s.name}: Mayday, mayday! Under attack by raiders!`, COL.warn);
+  }
+};
+
+game.abandonMission = m => {
+  game.missions.splice(game.missions.indexOf(m), 1);
+  if (m.type === 'delivery' && game.cargo.contract) {
+    game.cargo.contract.qty -= m.qty;
+    if (game.cargo.contract.qty <= 0) delete game.cargo.contract;
+  }
+};
+
+function completeDeliveries(st) {
+  const si = game.world.stations.indexOf(st);
+  for (const m of [...game.missions]) {
+    if (m.type !== 'delivery' || m.dest !== si) continue;
+    game.abandonMission(m);
+    game.credits += m.reward;
+    hud.msg(`Delivery complete: ${m.client} pays ${m.reward.toLocaleString()} cr.`, COL.good);
+    audio.cash();
+  }
+}
+
+function updateTraffic(dt) {
+  game.trafficT -= dt;
+  if (game.trafficT > 0) return;
+  game.trafficT = 20 + Math.random() * 15;
+  const p = game.player;
+  const civ = game.ships.filter(s => s.alive && s.team === 'civ').length;
+  if (civ >= 2) return;
+  const st = game.world.stations.find(s => s.pos.distanceTo(p.pos) < 25000);
+  if (!st) return;
+  const f = new Ship(game, 'freighter');
+  f.dest = game.world.stations.find(s => s !== st);
+  f.pos.copy(st.pos).addScaledVector(st.axis, 1600).add(V((Math.random() - 0.5) * 300, (Math.random() - 0.5) * 300, 0));
+  faceToward(f.obj, f.dest.pos, V(0, 1, 0));
+  f.speed = f.setSpeed = f.maxSpeed;
+  f.vel.copy(forwardOf(f.obj)).multiplyScalar(f.speed);
+  game.ships.push(f);
+}
 
 game.onPlayerHit = r => {
   hud.flash = r.armor ? 0.5 : 0.22;
@@ -441,6 +569,30 @@ function updateDead(dt) {
 
 const keys = {};
 
+// Gamepad (standard mapping), polled every frame.
+const pad = { active: false, axes: [0, 0, 0, 0], btn: [], prev: [] };
+function pollPad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gp = null;
+  for (const g of pads) if (g && g.connected) { gp = g; break; }
+  if (!gp) { pad.active = false; return; }
+  const dz = v => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
+  pad.axes = [0, 1, 2, 3].map(i => dz(gp.axes[i] || 0));
+  const b = gp.buttons.map(x => x.pressed || x.value > 0.5);
+  if (!pad.active && b.some(Boolean)) { pad.active = true; hud.msg('Gamepad connected.', COL.comm); }
+  for (let i = 0; i < b.length; i++) if (b[i] && !pad.prev[i]) onPadButton(i);
+  pad.btn = b; pad.prev = b;
+}
+function onPadButton(i) {
+  audio.init();
+  const st = game.state;
+  const map = { 0: 'Enter', 1: 'KeyX', 2: 'KeyT', 3: 'KeyR', 8: 'KeyV', 9: 'KeyP', 12: 'KeyA', 13: 'KeyD', 14: 'KeyN', 15: 'KeyM' };
+  if (st === 'menu' || (st === 'dead' && game.deathShown) || st === 'paused') { if (i === 0 || i === 9) menuPrimary(); return; }
+  if (st === 'trade') { if (i === 1 || i === 9) game.launchFromStation(ui.station); return; }
+  if (st === 'map') { if (i === 15 || i === 1) ui.closeMap(); else if (i === 0) { ui.closeMap(); engageAutopilot(); } else if (i === 14) { cycleNav(); ui.drawMap(); } return; }
+  if (map[i]) onKey(map[i]);
+}
+
 function playerControl(dt) {
   const p = game.player, k = keys;
   let pitch = 0, yaw = 0, roll = 0;
@@ -451,6 +603,11 @@ function playerControl(dt) {
   if (k.ArrowRight) yaw -= 1;
   if (k.KeyQ) roll += 1;
   if (k.KeyE) roll -= 1;
+  if (pad.active) {
+    pitch += pad.axes[1] * inv;
+    yaw -= pad.axes[0];
+    roll -= pad.axes[2];
+  }
   if (game.mouseFlight && game.mouse.inside) {
     const cx = innerWidth / 2, cy = hud.viewH / 2;
     const R = Math.min(innerWidth, hud.viewH) * 0.38;
@@ -475,22 +632,24 @@ function playerControl(dt) {
   p.obj.rotateY(p.angVel.y * dt);
   p.obj.rotateZ(p.angVel.z * dt);
 
+  if (pad.btn[5]) p.setSpeed = Math.min(p.maxSpeed, p.setSpeed + 260 * dt);
+  if (pad.btn[4]) p.setSpeed = Math.max(0, p.setSpeed - 260 * dt);
   if (k.KeyW || k.Equal || k.NumpadAdd) p.setSpeed = Math.min(p.maxSpeed, p.setSpeed + 260 * dt);
   if (k.KeyS || k.Minus || k.NumpadSubtract) p.setSpeed = Math.max(0, p.setSpeed - 260 * dt);
-  p.afterburner = !!k.Tab && p.abFuel > 0;
+  p.afterburner = (!!k.Tab || !!pad.btn[6]) && p.abFuel > 0;
   if (p.afterburner) p.abFuel = Math.max(0, p.abFuel - 9 * dt);
   else p.abFuel = Math.min(100, p.abFuel + 0.8 * dt);
 
   p.gunCd -= dt;
-  if ((k.Space || game.mouse.left) && p.gunCd <= 0 && p.energy >= p.shotCost) fireLasers(game, p);
+  if ((k.Space || game.mouse.left || pad.btn[7]) && p.gunCd <= 0 && p.energy >= p.shotCost) fireLasers(game, p);
   p.energy = Math.min(100, p.energy + 24 * dt);
 }
 
 function playerSystems(dt) {
   const p = game.player;
   if (game.time - p.lastHit > 2.5) {
-    p.shieldF = Math.min(p.shieldMax, p.shieldF + 9 * dt);
-    p.shieldR = Math.min(p.shieldMax, p.shieldR + 9 * dt);
+    p.shieldF = Math.min(p.shieldMax, p.shieldF + p.shieldRegen * dt);
+    p.shieldR = Math.min(p.shieldMax, p.shieldR + p.shieldRegen * dt);
   }
   // Missile lock: keep a hostile target near the nose, within range.
   const t = game.target;
@@ -567,6 +726,7 @@ function updateFlight(dt) {
     playerSystems(dt);
     checkCollisions(dt);
     checkEncounters(dt);
+    updateTraffic(dt);
   }
   game.ships = game.ships.filter(s => s.alive || s.isPlayer);
   for (let i = game.timers.length - 1; i >= 0; i--) {
@@ -583,8 +743,16 @@ function updateShipVisuals(dt) {
     const k = (0.45 + 0.9 * Math.min(1.5, s.speed / s.maxSpeed)) * (s.afterburner ? 1.8 : 1) * (0.92 + Math.random() * 0.16);
     for (const gl of s.glows) gl.scale.setScalar(gl.userData.base * k);
     if (s.isPlayer && (game.view === 'cockpit' || game.state === 'autopilot')) continue;
+    const hp = s.armor / s.armorMax;
+    s.smokeT -= dt;
+    if (hp < 0.5 && s.smokeT <= 0) {
+      s.smokeT = hp < 0.25 ? 0.03 : 0.07;
+      const at = V((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(s.radius * 0.8).add(s.pos);
+      game.fx.emit(at, s.vel.clone().multiplyScalar(0.3), { life: 1.6, size: s.radius * 0.35, sizeEnd: s.radius * 1.1, color: [0.3, 0.28, 0.26], colorEnd: [0.04, 0.04, 0.04], alpha: 0.6, drag: 0.8 });
+      if (hp < 0.25) game.fx.emit(at, null, { life: 0.25, size: s.radius * 0.3, sizeEnd: 1, color: [4, 1.8, 0.5] });
+    }
     s.trailT -= dt;
-    if (s.trailT <= 0 && s.speed > 30) {
+    if (!s.isPlayer && s.trailT <= 0 && s.speed > 30) {
       s.trailT = 0.03;
       const f = forwardOf(s.obj);
       const pos = s.exhaust.clone().applyQuaternion(s.obj.quaternion).add(s.pos);
@@ -671,9 +839,10 @@ function playerMissile() {
 function onKey(code) {
   const st = game.state;
   if (st === 'menu' || (st === 'dead' && game.deathShown)) {
-    if (code === 'Enter' || code === 'Space') newGame();
+    if (code === 'Enter' || code === 'Space') menuPrimary();
     return;
   }
+  if (code === 'KeyU') { const on = audio.toggleMusic(); hud.msg(on ? 'Music on' : 'Music off', COL.comm); return; }
   if (st === 'paused') { if (code === 'KeyP' || code === 'Escape' || code === 'KeyH') resume(); return; }
   if (st === 'map') {
     if (code === 'KeyM' || code === 'Escape') ui.closeMap();
@@ -683,6 +852,8 @@ function onKey(code) {
   }
   if (st === 'trade') {
     if (code === 'KeyL' || code === 'Escape') game.launchFromStation(ui.station);
+    const tabs = { Digit1: 'market', Digit2: 'contracts', Digit3: 'shipyard', Digit4: 'services' };
+    if (tabs[code]) { ui.tab = tabs[code]; ui.renderTrade(); }
     return;
   }
   if (st !== 'flight') return;
@@ -748,6 +919,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  pollPad();
   const st = game.state;
 
   if (st === 'flight') updateFlight(dt);
@@ -760,7 +932,9 @@ function frame(now) {
       clearCombat();
       audio.engine(0, false, false);
       audio.gravity(0);
+      completeDeliveries(game.dockStation);
       ui.openTrade(game.dockStation);
+      saveAt(game.dockStation);
     }
   } else if (st === 'dead') {
     for (const s of game.ships) if (s.alive && !s.isPlayer) { updateAI(s, game, dt); updateShipMotion(s, dt, game.world); }
@@ -771,11 +945,15 @@ function frame(now) {
     audio.engine(0, false, false);
   }
 
-  if (st !== 'map' && st !== 'trade' && st !== 'paused') game.fx.update(dt);
+  if (st !== 'map' && st !== 'trade' && st !== 'paused') { game.fx.update(dt); game.bubbles.update(dt); }
+  const p = game.player;
+  const combat = p && p.alive && game.ships.some(s => s.alive && s.team === 'pirate' && s.pos.distanceTo(p.pos) < 7000) ? 1 : 0;
+  audio.music(dt, st !== 'menu', combat);
   document.body.classList.toggle('flying', st === 'flight' && game.mouseFlight);
   updateShipVisuals(dt);
   updateCamera(dt);
   game.world.update(dt, camera);
+  dust.update(camera.position, p ? p.totalVel() : V(), !!p && p.alive && (st === 'flight' || st === 'docking'));
   render();
   hud.draw(dt);
   if (game.dashVisible) cockpit.draw();

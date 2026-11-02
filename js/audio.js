@@ -1,7 +1,11 @@
 // All sound effects are synthesized with the Web Audio API: no audio files needed.
 
 let ctx = null, master = null, sfx = null, noiseBuf = null;
-let eng = null, grav = null;
+let eng = null, grav = null, mus = null;
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+// Slow minor-key progression for the ambient score (MIDI notes).
+const CHORDS = [[50, 57, 60, 65, 69], [46, 53, 57, 62, 65], [41, 48, 55, 60, 64], [43, 50, 55, 58, 62], [45, 52, 57, 60, 64], [46, 53, 58, 62, 65]];
+const BASS = [38, 34, 41, 43, 45, 34];
 const MASTER_VOL = 0.55;
 
 function noiseSource(loop = false) {
@@ -91,6 +95,65 @@ export const audio = {
     grav.go = ctx.createGain(); grav.go.gain.value = 0;
     grav.o.connect(grav.go); grav.go.connect(master);
     grav.n.start(); grav.o.start();
+
+    // Music bus with a long feedback echo for a spacious sound.
+    mus = { on: true, t: 0.5, i: 0, beat: 0, step: 0 };
+    mus.bus = ctx.createGain(); mus.bus.gain.value = 0;
+    const delay = ctx.createDelay(1.5); delay.delayTime.value = 0.48;
+    const fb = ctx.createGain(); fb.gain.value = 0.42;
+    const tone_ = ctx.createBiquadFilter(); tone_.type = 'lowpass'; tone_.frequency.value = 1600;
+    const wet = ctx.createGain(); wet.gain.value = 0.55;
+    mus.bus.connect(master);
+    mus.bus.connect(delay); delay.connect(tone_); tone_.connect(fb); fb.connect(delay); tone_.connect(wet); wet.connect(master);
+  },
+
+  toggleMusic() { if (mus) mus.on = !mus.on; return mus ? mus.on : false; },
+
+  // Called every frame. active: whether music should play; combat 0..1 adds a pulsing bass line.
+  music(dt, active, combat) {
+    if (!ctx || !mus) return;
+    const t0 = ctx.currentTime;
+    mus.bus.gain.setTargetAtTime(active && mus.on ? 1 : 0, t0, 0.8);
+    if (!active || !mus.on) return;
+    mus.t -= dt;
+    if (mus.t <= 0) {
+      mus.t = 9;
+      const chord = CHORDS[mus.i % CHORDS.length];
+      mus.root = BASS[mus.i % BASS.length];
+      mus.i++;
+      for (const m of chord) {
+        for (const det of [-6, 6]) {
+          const o = ctx.createOscillator(); o.type = 'sawtooth';
+          o.frequency.value = mtof(m); o.detune.value = det;
+          const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520 + Math.random() * 300; f.Q.value = 0.3;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.linearRampToValueAtTime(0.012, t0 + 3);
+          g.gain.setValueAtTime(0.012, t0 + 7.5);
+          g.gain.linearRampToValueAtTime(0.0001, t0 + 11);
+          o.connect(f); f.connect(g); g.connect(mus.bus);
+          o.start(t0); o.stop(t0 + 11.1);
+        }
+      }
+      const sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = mtof(mus.root - 12);
+      const sg = ctx.createGain();
+      sg.gain.setValueAtTime(0.0001, t0); sg.gain.linearRampToValueAtTime(0.05, t0 + 3);
+      sg.gain.setValueAtTime(0.05, t0 + 7.5); sg.gain.linearRampToValueAtTime(0.0001, t0 + 11);
+      sub.connect(sg); sg.connect(mus.bus); sub.start(t0); sub.stop(t0 + 11.1);
+    }
+    if (combat > 0 && mus.root) {
+      mus.beat -= dt;
+      if (mus.beat <= 0) {
+        mus.beat = 0.21;
+        const pat = [0, 0, 12, 0, 7, 0, 12, 10];
+        const m = mus.root + pat[mus.step++ % pat.length];
+        const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = mtof(m);
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(1400, t0); f.frequency.exponentialRampToValueAtTime(200, t0 + 0.18);
+        const g = envGain(t0, 0.004, 0.05 * combat, 0.18);
+        o.connect(f); f.connect(g); g.connect(mus.bus);
+        o.start(t0); o.stop(t0 + 0.25);
+      }
+    }
   },
 
   setMuted(m) {

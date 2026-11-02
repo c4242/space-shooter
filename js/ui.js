@@ -1,5 +1,6 @@
 import { COMMODITIES } from './world.js';
-import { forwardOf } from './ships.js';
+import { forwardOf, UPGRADES, holdFor } from './ships.js';
+import { generateOffers, missionSummary, hasSave } from './career.js';
 import { fmtDist } from './hud.js';
 import { audio } from './audio.js';
 
@@ -179,11 +180,27 @@ export class UI {
       c.textAlign = 'center';
     });
 
+    // Contract markers
+    c.font = 'bold 13px "Share Tech Mono", monospace';
+    for (const m of g.missions) {
+      const pos = m.type === 'bounty' ? g.navs[m.navIndex].pos : w.stations[m.dest].pos;
+      const [x, y] = mp(pos);
+      c.fillStyle = '#ffd36b';
+      c.beginPath(); c.arc(x - 16, y - 16, 8, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#1a1200'; c.textAlign = 'center';
+      c.fillText(m.type === 'bounty' ? '✕' : '▣', x - 16, y - 12);
+    }
+    c.font = '12px "Share Tech Mono", monospace';
+    if (g.missions.length) {
+      c.textAlign = 'left'; c.fillStyle = '#ffd36b';
+      g.missions.forEach((m, i) => c.fillText(`● ${missionSummary(g, m)}`, 24, 84 + i * 16));
+    }
+
     // Hostiles on sensors
     for (const sh of g.ships) {
       if (!sh.alive || sh.isPlayer || sh.pos.distanceTo(g.player.pos) > 25000) continue;
       const [x, y] = mp(sh.pos);
-      c.fillStyle = '#ff5a4a'; c.beginPath(); c.arc(x, y, 2.5, 0, Math.PI * 2); c.fill();
+      c.fillStyle = sh.team === 'civ' ? '#ffd36b' : '#ff5a4a'; c.beginPath(); c.arc(x, y, 2.5, 0, Math.PI * 2); c.fill();
     }
 
     // Player arrow
@@ -207,15 +224,18 @@ export class UI {
     c.fillText('◆ nav point   □ station   ● hostile   ▸ you   - - - danger zones', W - 24, H - 20);
   }
 
-  // ------------------------------------------------------------- Trade screen
+  // ------------------------------------------------------------- Docked screen
   openTrade(station) {
+    const g = this.g;
     this.station = station;
     station.prices = {};
     for (const cm of COMMODITIES) {
       const buy = Math.max(5, Math.round(cm.base * station.market[cm.id] * (0.92 + Math.random() * 0.16)));
       station.prices[cm.id] = { buy, sell: Math.round(buy * 0.9) };
     }
-    this.g.state = 'trade';
+    station.offers = generateOffers(g, g.world.stations.indexOf(station));
+    this.tab = this.tab || 'market';
+    g.state = 'trade';
     this.tradeEl.classList.remove('hidden');
     this.renderTrade();
   }
@@ -223,8 +243,27 @@ export class UI {
   closeTrade() { this.tradeEl.classList.add('hidden'); }
 
   renderTrade() {
-    const g = this.g, st = this.station, p = g.player;
-    const used = g.cargoUsed(), free = g.cargoCap - used;
+    const g = this.g, st = this.station;
+    const used = g.cargoUsed();
+    const tabs = [['market', 'MARKET'], ['contracts', `CONTRACTS${g.missions.length ? ` (${g.missions.length})` : ''}`], ['shipyard', 'SHIPYARD'], ['services', 'SERVICES']];
+    const body = { market: () => this.marketHTML(), contracts: () => this.contractsHTML(), shipyard: () => this.shipyardHTML(), services: () => this.servicesHTML() }[this.tab]();
+    this.panel.innerHTML = `
+      <button class="launch" data-a="launch">LAUNCH ▸</button>
+      <h2>${st.name.toUpperCase()}</h2>
+      <div class="sub">Docking bay 3 · your progress is saved whenever you dock or launch</div>
+      <div class="stats">
+        <span>Credits: <b>${g.credits.toLocaleString()}</b> cr</span>
+        <span>Cargo: <b>${used}/${g.cargoCap}</b></span>
+        <span>Kills: <b>${g.kills}</b></span>
+      </div>
+      <div class="tabs">${tabs.map(([id, t]) => `<button data-a="tab" data-id="${id}" class="${this.tab === id ? 'on' : ''}">${t}</button>`).join('')}</div>
+      ${body}
+      <div class="dim foot">1–4 switch tabs · L / Esc to launch</div>`;
+  }
+
+  marketHTML() {
+    const g = this.g, st = this.station;
+    const free = g.cargoCap - g.cargoUsed();
     let rows = '';
     for (const cm of COMMODITIES) {
       const pr = st.prices[cm.id];
@@ -241,41 +280,76 @@ export class UI {
         <td><button data-a="sell" data-id="${cm.id}" data-n="1" ${held ? '' : 'disabled'}>SELL 1</button><button data-a="sell" data-id="${cm.id}" data-n="all" ${held ? '' : 'disabled'}>ALL</button></td>
       </tr>`;
     }
-    const repairCost = Math.ceil((p.armorMax - p.armor) * 4);
-    const fuelCost = Math.ceil((100 - p.abFuel) * 2);
-    const svc = [
-      ['repair', `Repair armor (${Math.round(p.armor)}/${p.armorMax})`, repairCost, p.armor < p.armorMax],
-      ['fuel', `Refuel afterburner (${Math.round(p.abFuel)}%)`, fuelCost, p.abFuel < 99.5],
-      ['missile', `Missile (${p.missiles}/${p.maxMissiles})`, 200, p.missiles < p.maxMissiles],
-      ['decoy', `Decoy (${p.decoys}/${p.maxDecoys})`, 40, p.decoys < p.maxDecoys],
-    ];
-    let svcRows = '';
-    for (const [id, label, cost, avail] of svc) {
-      svcRows += `<tr><td>${label}</td><td class="num">${avail ? cost + ' cr' : '—'}</td><td><button data-a="svc" data-id="${id}" ${avail && g.credits >= cost && cost > 0 ? '' : 'disabled'}>${id === 'repair' || id === 'fuel' ? 'SERVICE' : 'BUY'}</button></td></tr>`;
-    }
-    const other = this.g.world.stations.find(s => s !== st);
-    this.panel.innerHTML = `
-      <button class="launch" data-a="launch">LAUNCH ▸</button>
-      <h2>${st.name.toUpperCase()}</h2>
-      <div class="sub">Commodity exchange &amp; ship services · Tip: prices at ${other ? other.name : 'other stations'} differ, so buy low here and sell there.</div>
-      <div class="stats">
-        <span>Credits: <b>${g.credits.toLocaleString()}</b> cr</span>
-        <span>Cargo: <b>${used}/${g.cargoCap}</b></span>
-        <span>Kills: <b>${g.kills}</b></span>
-      </div>
-      <h3>MARKET</h3>
+    const contract = g.cargo.contract?.qty || 0;
+    const other = g.world.stations.find(s => s !== st);
+    return `<div class="sub">Prices at ${other.name} differ: buy low here, sell there.</div>
       <table>
         <tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">In hold</th><th></th><th></th></tr>
         ${rows}
       </table>
-      <h3>SERVICES</h3>
-      <table>${svcRows}</table>
-      <div class="dim">L / Esc to launch</div>`;
+      ${contract ? `<div class="dim">Contract cargo in hold: ${contract} t (not for sale)</div>` : ''}`;
+  }
+
+  contractsHTML() {
+    const g = this.g, st = this.station;
+    const free = g.cargoCap - g.cargoUsed();
+    const active = g.missions.map(m => `<tr>
+        <td><b>${m.title}</b><br><span class="dim">${missionSummary(g, m)} · ${m.client}</span></td>
+        <td class="num good">${m.reward.toLocaleString()} cr</td>
+        <td><button data-a="abandon" data-id="${m.id}">ABANDON</button></td></tr>`).join('');
+    const offers = st.offers.map(m => {
+      const full = g.missions.length >= 3;
+      const noRoom = m.type === 'delivery' && m.qty > free;
+      return `<tr>
+        <td><b>${m.title}</b><br><span class="dim">${m.desc} · ${m.client}</span></td>
+        <td class="num good">${m.reward.toLocaleString()} cr</td>
+        <td><button data-a="accept" data-id="${m.id}" ${full || noRoom ? 'disabled' : ''}>ACCEPT</button>${noRoom ? '<br><span class="bad">no room</span>' : ''}</td></tr>`;
+    }).join('');
+    return `<h3>ACTIVE CONTRACTS (${g.missions.length}/3)</h3>
+      ${active ? `<table>${active}</table>` : '<p class="dim">None. Contracts pay far better than hauling cargo.</p>'}
+      <h3>CONTRACT BOARD</h3>
+      ${offers ? `<table>${offers}</table>` : '<p class="dim">No more work today. Check back after your next launch.</p>'}`;
+  }
+
+  shipyardHTML() {
+    const g = this.g;
+    let rows = '';
+    for (const [id, u] of Object.entries(UPGRADES)) {
+      const lvl = g.upgrades[id];
+      const max = lvl >= u.costs.length;
+      const cost = max ? 0 : u.costs[lvl];
+      const pips = u.levels.map((_, i) => `<i class="${i <= lvl ? 'on' : ''}"></i>`).join('');
+      rows += `<tr>
+        <td><b>${u.name}</b><br><span class="dim">Installed: ${u.levels[lvl]}</span></td>
+        <td><span class="pips">${pips}</span></td>
+        <td>${max ? '<span class="dim">Fully upgraded</span>' : `Next: ${u.levels[lvl + 1]}`}</td>
+        <td class="num">${max ? '' : cost.toLocaleString() + ' cr'}</td>
+        <td>${max ? '' : `<button data-a="upgrade" data-id="${id}" ${g.credits >= cost ? '' : 'disabled'}>INSTALL</button>`}</td></tr>`;
+    }
+    return `<div class="sub">Better guns hit harder and faster, shields soak more and recharge faster, the engine adds speed and agility, and a bigger hold means bigger trade runs.</div><table>${rows}</table>`;
+  }
+
+  servicesHTML() {
+    const g = this.g, p = g.player;
+    const repairCost = Math.ceil((p.armorMax - p.armor) * 4);
+    const fuelCost = Math.ceil((100 - p.abFuel) * 2);
+    const svc = [
+      ['repair', `Repair armor (${Math.round(p.armor)}/${p.armorMax})`, repairCost, p.armor < p.armorMax - 0.5],
+      ['fuel', `Refuel afterburner (${Math.round(p.abFuel)}%)`, fuelCost, p.abFuel < 99.5],
+      ['missile', `Seeker missile (${p.missiles}/${p.maxMissiles})`, 200, p.missiles < p.maxMissiles],
+      ['decoy', `Decoy (${p.decoys}/${p.maxDecoys})`, 40, p.decoys < p.maxDecoys],
+    ];
+    let rows = '';
+    for (const [id, lbl, cost, avail] of svc) {
+      rows += `<tr><td>${lbl}</td><td class="num">${avail ? cost + ' cr' : '—'}</td><td><button data-a="svc" data-id="${id}" ${avail && g.credits >= cost && cost > 0 ? '' : 'disabled'}>${id === 'repair' || id === 'fuel' ? 'SERVICE' : 'BUY'}</button></td></tr>`;
+    }
+    return `<table>${rows}</table>`;
   }
 
   tradeAction(a, id, n) {
     const g = this.g, st = this.station, p = g.player;
     if (a === 'launch') { g.launchFromStation(st); return; }
+    if (a === 'tab') { this.tab = id; audio.click(); this.renderTrade(); return; }
     if (a === 'buy') {
       const pr = st.prices[id].buy;
       const free = g.cargoCap - g.cargoUsed();
@@ -301,6 +375,31 @@ export class UI {
       if (id === 'missile') { g.credits -= 200; p.missiles++; }
       if (id === 'decoy') { g.credits -= 40; p.decoys++; }
       audio.cash();
+    } else if (a === 'upgrade') {
+      const u = UPGRADES[id], lvl = g.upgrades[id], cost = u.costs[lvl];
+      if (cost === undefined || g.credits < cost) { audio.denied(); return; }
+      g.credits -= cost;
+      g.upgrades[id]++;
+      g.applyUpgrades();
+      audio.chime();
+    } else if (a === 'accept') {
+      const i = st.offers.findIndex(m => m.id === +id);
+      if (i < 0) return;
+      const m = st.offers[i];
+      if (m.type === 'delivery') {
+        const c = g.cargo.contract || (g.cargo.contract = { qty: 0, cost: 0 });
+        c.qty += m.qty;
+      } else {
+        g.navIndex = m.navIndex;
+      }
+      st.offers.splice(i, 1);
+      g.missions.push(m);
+      audio.chime();
+    } else if (a === 'abandon') {
+      const i = g.missions.findIndex(m => m.id === +id);
+      if (i < 0) return;
+      g.abandonMission(g.missions[i]);
+      audio.denied();
     }
     this.renderTrade();
   }
@@ -310,19 +409,35 @@ export class UI {
     const title = document.getElementById('menuTitle');
     const sub = document.getElementById('menuText');
     const btn = document.getElementById('menuBtn');
+    const btn2 = document.getElementById('menuBtn2');
     const hint = document.getElementById('menuHint');
     this.menuEl.classList.remove('hidden');
-    if (kind === 'paused') {
+    btn2.classList.add('hidden');
+    if (kind === 'start') {
+      if (hasSave()) {
+        btn.textContent = 'CONTINUE';
+        btn2.textContent = 'NEW PILOT';
+        btn2.classList.remove('hidden');
+      } else btn.textContent = 'LAUNCH';
+    } else if (kind === 'paused') {
       title.textContent = 'PAUSED';
       sub.textContent = 'Controls';
       btn.textContent = 'RESUME';
-      hint.textContent = 'P / Esc to resume';
+      hint.textContent = 'P / Esc to resume · U toggles music · K mutes all sound';
     } else if (kind === 'dead') {
       title.textContent = 'SHIP LOST';
       sub.textContent = text;
-      btn.textContent = 'NEW PILOT';
-      hint.textContent = `Credits: ${this.g.credits.toLocaleString()} · Kills: ${this.g.kills}`;
+      if (hasSave()) {
+        btn.textContent = 'RELOAD SAVE';
+        btn2.textContent = 'NEW PILOT';
+        btn2.classList.remove('hidden');
+        hint.textContent = `Reload returns you to the last station you docked at. Kills this run: ${this.g.kills}`;
+      } else {
+        btn.textContent = 'NEW PILOT';
+        hint.textContent = `Credits: ${this.g.credits.toLocaleString()} · Kills: ${this.g.kills}`;
+      }
     }
+    this.menuKind = kind;
   }
 
   hideMenu() { this.menuEl.classList.add('hidden'); }

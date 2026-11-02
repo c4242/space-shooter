@@ -135,3 +135,100 @@ export class Particles {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shield impact bubbles: a fresnel-lit sphere that flashes around a ship when
+// its shields absorb a hit, brightest on the side that was hit.
+// ---------------------------------------------------------------------------
+const BUBBLE_VS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_vertex>
+varying vec3 vN; varying vec3 vV; varying vec3 vW;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = normalize(-mv.xyz);
+  vW = normalize(position);
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const BUBBLE_FS = /* glsl */`
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform float alpha; uniform vec3 color; uniform vec3 hitDir;
+varying vec3 vN; varying vec3 vV; varying vec3 vW;
+void main() {
+  #include <logdepthbuf_fragment>
+  float rim = pow(1.0 - abs(dot(vN, vV)), 2.2);
+  float hit = pow(max(dot(vW, hitDir), 0.0), 6.0);
+  gl_FragColor = vec4(color, alpha * (rim * 0.8 + hit * 1.6));
+}`;
+const BUBBLE_GEO = new THREE.SphereGeometry(1, 32, 20);
+
+export class Bubbles {
+  constructor(scene) { this.scene = scene; this.list = []; }
+  add(ship, at) {
+    if (this.list.some(b => b.ship === ship && b.t > 0.2)) return;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { alpha: { value: 1 }, color: { value: new THREE.Color(0.5, 1.4, 3.2) }, hitDir: { value: new THREE.Vector3() } },
+      vertexShader: BUBBLE_VS, fragmentShader: BUBBLE_FS,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const m = new THREE.Mesh(BUBBLE_GEO, mat);
+    m.scale.setScalar(ship.radius * 1.4);
+    m.position.copy(ship.pos);
+    // Hit direction in the bubble's (unrotated) local space.
+    mat.uniforms.hitDir.value.subVectors(at, ship.pos).normalize();
+    this.scene.add(m);
+    this.list.push({ m, ship, t: 0.35 });
+  }
+  update(dt) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const b = this.list[i];
+      b.t -= dt;
+      b.m.position.copy(b.ship.pos);
+      b.m.material.uniforms.alpha.value = Math.max(0, b.t / 0.35);
+      if (b.t <= 0 || !b.ship.alive) {
+        this.scene.remove(b.m); b.m.material.dispose();
+        this.list.splice(i, 1);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Space dust: faint streaks that wrap around the camera so speed is visible.
+// ---------------------------------------------------------------------------
+export class Dust {
+  constructor(scene, n = 450, size = 700) {
+    this.n = n; this.size = size;
+    this.p = new Float32Array(n * 3);
+    for (let i = 0; i < n * 3; i++) this.p[i] = (Math.random() - 0.5) * size;
+    this.buf = new Float32Array(n * 6);
+    const geo = new THREE.BufferGeometry();
+    this.attr = new THREE.BufferAttribute(this.buf, 3).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', this.attr);
+    this.lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: new THREE.Color(0.55, 0.65, 0.8), transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    this.lines.frustumCulled = false;
+    scene.add(this.lines);
+  }
+  update(cam, vel, visible) {
+    this.lines.visible = visible;
+    if (!visible) return;
+    const S = this.size, h = S / 2;
+    const sp = vel.length();
+    const k = sp > 1 ? Math.min(60, Math.max(1.5, sp * 0.045)) / sp : 0;
+    const sx = vel.x * k, sy = vel.y * k, sz = vel.z * k;
+    const p = this.p, b = this.buf;
+    const wrap = (v, c) => { let d = v - c; d = ((d + h) % S + S) % S - h; return c + d; };
+    for (let i = 0; i < this.n; i++) {
+      const i3 = i * 3, i6 = i * 6;
+      p[i3] = wrap(p[i3], cam.x); p[i3 + 1] = wrap(p[i3 + 1], cam.y); p[i3 + 2] = wrap(p[i3 + 2], cam.z);
+      b[i6] = p[i3]; b[i6 + 1] = p[i3 + 1]; b[i6 + 2] = p[i3 + 2];
+      b[i6 + 3] = p[i3] - sx; b[i6 + 4] = p[i3 + 1] - sy; b[i6 + 5] = p[i3 + 2] - sz;
+    }
+    this.attr.needsUpdate = true;
+  }
+}

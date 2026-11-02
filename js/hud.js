@@ -101,7 +101,7 @@ export class Hud {
       if (p.gAccel > 15) this.drawGravity(ctx, p.gAccel);
     }
     if (g.dashVisible && this.cracks.length) this.drawCracks(ctx);
-    this.drawMessages(ctx);
+    if (g.state !== 'docking') this.drawMessages(ctx);
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(${this.flashRGB},${Math.min(0.45, this.flash)})`;
       ctx.fillRect(0, 0, W, H);

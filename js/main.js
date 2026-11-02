@@ -38,7 +38,10 @@ const PIRATE_LINES = [
 // ---------------------------------------------------------------------------
 
 // Quality: ?quality=low (or a touch device) turns off MSAA and lowers resolution for slower GPUs.
-const LOW_GFX = new URLSearchParams(location.search).get('quality') === 'low' || matchMedia('(pointer: coarse)').matches;
+let SETTINGS = { master: 1, music: 0.8, sfx: 1, sens: 1, invert: false, mouseFlight: true, quality: null };
+try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('sableRift.settings') || '{}')); } catch { /* defaults */ }
+const qParam = new URLSearchParams(location.search).get('quality');
+const LOW_GFX = qParam ? qParam === 'low' : SETTINGS.quality ? SETTINGS.quality === 'low' : matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, LOW_GFX ? 1 : 1.5));
 renderer.setSize(innerWidth, innerHeight);
@@ -309,6 +312,31 @@ function menuPrimary() {
 document.getElementById('menuBtn').addEventListener('click', menuPrimary);
 document.getElementById('menuBtn2').addEventListener('click', () => { audio.init(); newGame(); });
 ui.showMenu('start');
+
+// ---- Settings panel (shown on the pause screen); saved in the browser.
+function saveSettings() { try { localStorage.setItem('sableRift.settings', JSON.stringify(SETTINGS)); } catch { /* fine */ } }
+function applySettings() {
+  audio.setVolumes({ master: SETTINGS.master, music: SETTINGS.music, sfx: SETTINGS.sfx });
+  game.invertPitch = SETTINGS.invert;
+  game.mouseFlight = SETTINGS.mouseFlight;
+}
+{
+  const $ = id => document.getElementById(id);
+  const bind = (id, key, prop = 'value', conv = Number) => {
+    const el = $(id);
+    el[prop] = SETTINGS[key];
+    el.addEventListener('input', () => { SETTINGS[key] = conv(el[prop]); saveSettings(); applySettings(); });
+  };
+  bind('setMaster', 'master'); bind('setMusic', 'music'); bind('setSfx', 'sfx'); bind('setSens', 'sens');
+  bind('setInvert', 'invert', 'checked', Boolean); bind('setMouseFlight', 'mouseFlight', 'checked', Boolean);
+  const q = $('setQuality');
+  q.value = LOW_GFX ? 'low' : 'high';
+  q.addEventListener('change', () => {
+    SETTINGS.quality = q.value; saveSettings();
+    $('setNote').textContent = 'Graphics quality takes effect after reloading the page (your career is saved when you dock).';
+  });
+  applySettings();
+}
 
 game.launchFromStation = st => {
   ui.closeTrade();
@@ -732,6 +760,31 @@ function spawnGroup(kinds, tag = {}) {
   return ships;
 }
 
+function spawnCarrier() {
+  const p = game.player;
+  const s = new Ship(game, 'carrier');
+  const f = forwardOf(p.obj);
+  s.pos.copy(p.pos).addScaledVector(f, 6500).add(V((Math.random() - 0.5) * 3000, 600, (Math.random() - 0.5) * 3000));
+  faceToward(s.obj, p.pos, V(0, 1, 0));
+  s.obj.rotateY(0.9);   // broadside-ish arrival
+  s.vel.copy(p.vel);
+  game.ships.push(s);
+  hud.msg('Ashfang Carrier Gorehaven: All wings, launch! Burn that ship out of the sky.', COL.hostile);
+  hud.msg('WARNING: Ashfang capital ship on sensors. Torpedoes recommended.', COL.warn);
+  audio.alarm();
+}
+// The carrier's hangar launches raiders.
+game.spawnFromCarrier = c => {
+  const r = new Ship(game, 'pirate');
+  const out = V(0, -12, -56).applyQuaternion(c.obj.quaternion).add(c.pos);
+  r.pos.copy(out);
+  r.obj.quaternion.copy(c.obj.quaternion);
+  r.vel.copy(c.vel).add(forwardOf(c.obj).multiplyScalar(160));
+  r.fromCarrier = c;
+  game.ships.push(r);
+  game.fx.emit(out, c.vel, { life: 0.4, size: 30, sizeEnd: 8, color: [3, 1.5, 0.6] });
+};
+
 function spawnPirates(n, mission = null, heavy = 0) {
   const kinds = Array.from({ length: n }, (_, i) => (i < heavy ? 'marauder' : 'pirate'));
   spawnGroup(kinds, mission ? { missionId: mission.id } : {});
@@ -765,6 +818,12 @@ function checkEncounters(dt) {
     let chance = Math.min(0.95, nav.encounter * danger);
     if (nav.kind === 'station' && (game.cargo.contract?.qty || game.cargo.smuggle?.qty)) chance = 0.45;
     if (game.rep.ashfang <= -40) chance = Math.min(0.95, chance + 0.15);
+    // Rare capital-ship encounter in pirate space (and occasionally at the Rift's edge).
+    const carrierChance = game.sys === 'hollow' ? 0.22 : game.sys === 'sable' && nav.kind !== 'station' ? 0.06 : 0;
+    if (!game.ships.some(x => x.capital && x.alive) && Math.random() < carrierChance) {
+      later(2, () => { if (game.state === 'flight' || game.state === 'map') spawnCarrier(); });
+      continue;
+    }
     if (Math.random() < chance) {
       const n = 1 + ((Math.random() * 2) | 0) + (cargoValue() > 3000 ? 1 : 0) + (game.sys === 'hollow' ? 1 : 0);
       const heavy = n >= 2 && Math.random() < (game.rep.ashfang <= -40 ? 0.6 : 0.3) ? 1 : 0;
@@ -827,6 +886,22 @@ function updateTraffic(dt) {
 
 game.onShipDestroyed = (s, killer) => {
   if (game.target === s) game.target = null;
+  if (s.capital) {
+    // Chain of secondary explosions across the hull, then the reactor goes.
+    const at = s.pos.clone(), q = s.obj.quaternion.clone(), v = s.vel.clone();
+    for (let i = 0; i < 9; i++) {
+      later(0.25 + i * 0.32, () => {
+        const pos = V((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 260).applyQuaternion(q).add(at).addScaledVector(v, 0.3 * i);
+        game.fx.explosion(pos, 1.4 + Math.random(), v);
+        audio.explosion(Math.max(0.3, 1 - camera.position.distanceTo(pos) / 9000), true, panAt(game, pos));
+      });
+    }
+    later(3.3, () => { game.fx.explosion(at, 4.5, v); audio.explosion(1, true, panAt(game, at)); game.shake = 2; hud.flash = 0.6; hud.flashRGB = '255,200,140'; });
+    // The wreck hangs on screen while it burns.
+    const wreck = s.obj;
+    scene.add(wreck);
+    later(3.4, () => scene.remove(wreck));
+  }
   if (s.wing) {
     hud.msg(`${s.name}: I'm hit, I'm going down! ... Wingman lost.`, COL.hostile);
     game.wing = null;
@@ -1046,7 +1121,7 @@ function playerControl(dt) {
   }
   if (game.mouseFlight && game.mouse.inside && !game.touchMode && !game.mouseFree) {
     const cx = innerWidth / 2, cy = hud.viewH / 2;
-    const R = Math.min(innerWidth, hud.viewH) * 0.38;
+    const R = Math.min(innerWidth, hud.viewH) * 0.38 / (SETTINGS.sens || 1);
     let dx = (game.mouse.x - cx) / R, dy = (game.mouse.y - cy) / R;
     const m = Math.hypot(dx, dy);
     if (m > 1) { dx /= m; dy /= m; }
@@ -1494,11 +1569,11 @@ function onKey(code) {
     case 'KeyV': toggleView(); break;
     case 'F2': toggleChase(); break;
     case 'KeyI':
-      game.invertPitch = !game.invertPitch;
+      game.invertPitch = SETTINGS.invert = !game.invertPitch; saveSettings(); document.getElementById('setInvert').checked = SETTINGS.invert;
       hud.msg(`Pitch keys: ${game.invertPitch ? 'Up = nose up' : 'Up = nose down'}`, COL.comm);
       break;
     case 'KeyF':
-      game.mouseFlight = !game.mouseFlight;
+      game.mouseFlight = SETTINGS.mouseFlight = !game.mouseFlight; saveSettings(); document.getElementById('setMouseFlight').checked = SETTINGS.mouseFlight;
       hud.msg(`Mouse flight ${game.mouseFlight ? 'ON' : 'OFF'}`, COL.comm);
       break;
     case 'KeyK':

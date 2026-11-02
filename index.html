@@ -68,6 +68,16 @@
         <div><b>D</b> request docking · <b>V</b> external view · <b>F2</b> chase cam · <b>U</b> music · <b>K</b> mute · <b>P / Esc / H</b> pause &amp; help</div>
         <div class="pad"><b>Gamepad:</b> left stick pitch/yaw · right stick roll · RT fire · LT afterburner · A missile · B decoy · X/Y target · RB/LB thrust · R3 brake · L3 missile type · D-pad autopilot/dock-or-jump/nav/map · Start pause · Back view</div>
       </div>
+      <div id="settings" class="settings hidden">
+        <label>Master volume <input type="range" id="setMaster" min="0" max="1" step="0.05"></label>
+        <label>Music volume <input type="range" id="setMusic" min="0" max="1" step="0.05"></label>
+        <label>Effects volume <input type="range" id="setSfx" min="0" max="1" step="0.05"></label>
+        <label>Mouse sensitivity <input type="range" id="setSens" min="0.4" max="2.5" step="0.05"></label>
+        <label>Invert pitch keys <input type="checkbox" id="setInvert"></label>
+        <label>Mouse flight <input type="checkbox" id="setMouseFlight"></label>
+        <label>Graphics <select id="setQuality"><option value="high">High</option><option value="low">Low (faster)</option></select></label>
+        <div class="dim" id="setNote"></div>
+      </div>
       <div class="menu-buttons"><button id="menuBtn">LAUNCH</button><button id="menuBtn2" class="hidden secondary">NEW PILOT</button></div>
       <p class="hint" id="menuHint">Newtonian flight: you keep drifting until you thrust the other way. Use the prograde/retrograde markers. Touch screens get on-screen controls.</p>
     </div>

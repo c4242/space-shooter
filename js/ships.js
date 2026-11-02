@@ -222,6 +222,38 @@ export function buildMarauderModel() {
   return { group: outer, glows, gunPorts: [new THREE.Vector3(-7.1, 0, -11.6), new THREE.Vector3(7.1, 0, -11.6), new THREE.Vector3(0, 3, -5)], exhaust: new THREE.Vector3(0, 0, 13), engineColor: [3, 1, 0.3] };
 }
 
+// Ashfang carrier: a 300 m capital ship with a hangar deck and turrets.
+export function buildCarrierModel() {
+  const g = new THREE.Group();
+  const hull = mat(0x4a4440, { roughness: 0.6 }), dark = mat(0x1d1b1a, { roughness: 0.75 });
+  const red = mat(0x6e1410, { emissive: 0x8a0c04, emissiveIntensity: 1.6 });
+  const win = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff7a40, emissiveIntensity: 2 });
+  part(g, new THREE.BoxGeometry(60, 34, 260), hull, [0, 0, 0]);
+  part(g, new THREE.ConeGeometry(34, 70, 4), hull, [0, 0, -164], [-Math.PI / 2, Math.PI / 4, 0]);
+  part(g, new THREE.BoxGeometry(90, 10, 150), dark, [0, -14, 20]);           // flight deck
+  part(g, new THREE.BoxGeometry(44, 18, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.8, 0.3) }), [0, -12, -56]); // hangar mouth
+  part(g, new THREE.BoxGeometry(22, 34, 40), hull, [18, 32, 60]);             // bridge tower
+  part(g, new THREE.BoxGeometry(23, 3, 36), win, [18, 42, 60]);
+  for (const sx of [-1, 1]) {
+    part(g, new THREE.BoxGeometry(6, 40, 200), hull, [sx * 33, 2, 0]);
+    part(g, new THREE.BoxGeometry(2, 3, 180), red, [sx * 36.5, 12, 0]);
+    part(g, new THREE.CylinderGeometry(14, 18, 30, 12), dark, [sx * 20, 0, 140], [Math.PI / 2, 0, 0]);
+  }
+  for (let i = 0; i < 26; i++) part(g, new THREE.BoxGeometry(1.6, 1.6, 0.4), win, [(i % 2 ? 1 : -1) * 30.3, (i % 3) * 6 - 6, -110 + i * 8.5], [0, Math.PI / 2, 0]);
+  // Turrets: a base and a pivoting twin barrel
+  const turrets = [];
+  for (const [x, y, z] of [[0, 18, -80], [0, 18, 0], [-24, 18, 90], [24, -20, -100], [-24, -20, 100]]) {
+    const base = part(g, new THREE.CylinderGeometry(6, 7, 4, 10), dark, [x, y + Math.sign(y) * 2, z]);
+    const pivot = new THREE.Group();
+    pivot.position.set(x, y + Math.sign(y) * 6, z);
+    g.add(pivot);
+    for (const bx of [-1.6, 1.6]) part(pivot, new THREE.CylinderGeometry(0.8, 0.8, 14, 6), hull, [bx, 0, -7], [Math.PI / 2, 0, 0]);
+    turrets.push({ pivot, base, cd: Math.random() * 2 });
+  }
+  const glows = [glow(g, new THREE.Color(3.2, 1.1, 0.3), [-20, 0, 156], 40), glow(g, new THREE.Color(3.2, 1.1, 0.3), [20, 0, 156], 40)];
+  return { group: g, glows, gunPorts: [], turrets, exhaust: new THREE.Vector3(0, 0, 160), engineColor: [3, 1, 0.3] };
+}
+
 export function buildFreighterModel() {
   const g = new THREE.Group();
   const hull = mat(0xb9ab8c, { metalness: 0.35, roughness: 0.55 }), dark = mat(0x34322e, { roughness: 0.7 });
@@ -369,13 +401,14 @@ const PATROLS = ['Lance', 'Warden', 'Aegis', 'Bastion', 'Sentry', 'Vigil'];
 const pick = a => a[(Math.random() * a.length) | 0];
 const BUILDERS = {
   player: () => buildPlayerModel(), pirate: buildPirateModel, marauder: buildMarauderModel, warlord: buildWarlordModel,
-  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel, wingman: buildWingmanModel,
+  freighter: buildFreighterModel, smuggler: buildFreighterModel, police: buildPoliceModel, wingman: buildWingmanModel, carrier: buildCarrierModel,
 };
 const HULL_MODELS = { kestrel: () => buildPlayerModel(), bastion: buildBastionModel };
 const STATS = {
   pirate: () => ({ name: 'Ashfang ' + pick(CALLSIGNS), cls: 'ASHFANG RAIDER', team: 'pirate', thrust: 105, abThrust: 180, rcs: 45, cruise: 380, radius: 10, shieldMax: 45, armorMax: 60, gunDmg: 6, fireRate: 0.28, shotCost: 5, missiles: Math.random() < 0.5 ? 1 : 0, turn: 1.05 + Math.random() * 0.25, bounty: 250 + ((Math.random() * 6) | 0) * 25 }),
   marauder: () => ({ name: 'Marauder ' + pick(CALLSIGNS), cls: 'ASHFANG MARAUDER', team: 'pirate', thrust: 75, abThrust: 130, rcs: 32, cruise: 320, radius: 16, shieldMax: 95, armorMax: 150, gunDmg: 7, fireRate: 0.2, shotCost: 4, missiles: 2, turn: 0.8 + Math.random() * 0.15, bounty: 650 + ((Math.random() * 6) | 0) * 25 }),
   warlord: () => ({ name: "Krell's Talon", cls: 'ASHFANG WARLORD', team: 'pirate', thrust: 70, abThrust: 120, rcs: 30, cruise: 300, radius: 24, shieldMax: 260, armorMax: 520, gunDmg: 9, fireRate: 0.16, shotCost: 3, missiles: 6, turn: 0.7, bounty: 5000 }),
+  carrier: () => ({ name: 'Ashfang Carrier Gorehaven', cls: 'ASHFANG CARRIER', team: 'pirate', capital: true, thrust: 10, abThrust: 0, rcs: 4, cruise: 60, radius: 120, shieldMax: 900, armorMax: 2400, gunDmg: 8, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.08, bounty: 9000 }),
   smuggler: () => ({ name: 'Ashfang Hauler', cls: 'ASHFANG HAULER', team: 'pirate', thrust: 30, abThrust: 25, rcs: 12, cruise: 200, radius: 34, shieldMax: 60, armorMax: 220, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, bounty: 800, hauler: true }),
   freighter: () => ({ name: 'Hauler ' + pick(HAULERS), cls: 'MERCHANT FREIGHTER', team: 'civ', thrust: 28, abThrust: 22, rcs: 12, cruise: 190, radius: 34, shieldMax: 80, armorMax: 240, gunDmg: 0, fireRate: 1, shotCost: 0, missiles: 0, turn: 0.35, hauler: true }),
   wingman: () => ({ name: 'Wing', cls: 'WINGMAN', team: 'player', wing: true, thrust: 125, abThrust: 220, rcs: 55, cruise: 450, radius: 11, shieldMax: 100, armorMax: 130, gunDmg: 6, fireRate: 0.18, shotCost: 4, missiles: 2, turn: 1.3 }),
@@ -388,6 +421,7 @@ export class Ship {
     this.isPlayer = kind === 'player';
     const m = this.isPlayer ? HULL_MODELS[game.hull || 'kestrel']() : BUILDERS[kind]();
     this.obj = m.group; this.glows = m.glows; this.gunPorts = m.gunPorts;
+    this.turrets = m.turrets || null;
     this.exhaust = m.exhaust; this.engineColor = m.engineColor; this.lightbar = m.lightbar || null;
     // One plume per engine glow, sized from the glow (positions are in the glow's parent space).
     this.plumes = this.glows.map(gl => addPlume(gl.parent, gl.position, gl.userData.base * 0.16, this.engineColor.map(c => c * 0.8)));
@@ -481,6 +515,24 @@ export function fireLasers(game, s) {
   s.gunCd = s.fireRate;
   if (s.isPlayer) audio.laser(1, true);
   else audio.laser(volAt(game, s.pos), false, panAt(game, s.pos));
+}
+
+// Turret fire: a bolt from a turret toward an aim point (does not depend on the hull's facing).
+function fireTurret(game, s, t, aim) {
+  t.pivot.updateMatrixWorld();
+  const from = V().setFromMatrixPosition(t.pivot.matrixWorld);
+  const dir = V().subVectors(aim, from).normalize();
+  for (const off of [-1.6, 1.6]) {
+    const p = from.clone().add(V(off, 0, 0).applyQuaternion(s.obj.quaternion)).addScaledVector(dir, 16);
+    const mesh = new THREE.Mesh(LASER_GEO, LASER_MATS[s.team]);
+    mesh.position.copy(p);
+    mesh.scale.set(1.8, 1.4, 1.8);
+    mesh.quaternion.setFromUnitVectors(Y_AXIS, dir);
+    game.scene.add(mesh);
+    game.lasers.push({ mesh, vel: dir.clone().multiplyScalar(LASER_SPEED * 0.8).add(s.vel), life: 1.8, owner: s, team: s.team, dmg: s.gunDmg });
+    game.fx.emit(p, s.vel, { life: 0.1, size: 9, sizeEnd: 2, color: [4, 1, 0.4] });
+  }
+  audio.laser(volAt(game, from) * 1.2, false, panAt(game, from));
 }
 
 export function updateLasers(game, dt) {
@@ -698,6 +750,39 @@ function steer(s, vd, dt, aim) {
   s.rcsCmd.copy(dv).multiplyScalar(3);
 }
 
+// Capital ship: drifts slowly toward its target, turrets track and fire on their own,
+// and the hangar launches raiders while the carrier is engaged.
+function carrierAI(s, game, dt) {
+  s.recentHits = 0;
+  const p = game.player;
+  const engaged = p && p.alive && p.pos.distanceTo(s.pos) < 9000;
+  const want = engaged ? V().subVectors(p.pos, s.pos) : forwardOf(s.obj, V());
+  const d = want.length();
+  steer(s, want.multiplyScalar(d > 2500 ? s.cruise / (d || 1) : 0), dt, d > 1 ? want.clone().normalize() : null);
+  s.launchCd = (s.launchCd ?? 6) - dt;
+  if (engaged && s.launchCd <= 0 && game.ships.filter(o => o.alive && o.fromCarrier === s).length < 3 && game.spawnFromCarrier) {
+    s.launchCd = 22;
+    game.spawnFromCarrier(s);
+  }
+  for (const t of s.turrets) {
+    t.cd -= dt;
+    let tgt = null, bd = 3500;
+    for (const o of game.ships) {
+      if (!hostileTo(game, s, o)) continue;
+      const dd = o.pos.distanceTo(s.pos);
+      if (dd < bd) { bd = dd; tgt = o; }
+    }
+    if (!tgt) continue;
+    // Lead the target and swing the barrels toward it.
+    const aim = V().copy(tgt.pos).addScaledVector(V().subVectors(tgt.vel, s.vel), bd / (LASER_SPEED * 0.8));
+    // lookAt turns +z toward a world point; the barrels point along -z, so aim at the mirror point.
+    t.pivot.updateMatrixWorld();
+    const pw = V().setFromMatrixPosition(t.pivot.matrixWorld);
+    t.pivot.lookAt(pw.multiplyScalar(2).sub(aim));
+    if (t.cd <= 0) { t.cd = 0.9 + Math.random() * 0.8; fireTurret(game, s, t, aim); }
+  }
+}
+
 function haulerAI(s, game, dt) {
   if (!s.dest) s.dest = { pos: s.pos.clone().addScaledVector(forwardOf(s.obj, V()), 60000) };
   s.recentHits = Math.max(0, s.recentHits - dt * 0.25);
@@ -711,6 +796,7 @@ function haulerAI(s, game, dt) {
 
 export function updateAI(s, game, dt) {
   s.rcsCmd.set(0, 0, 0);
+  if (s.capital) return carrierAI(s, game, dt);
   if (s.hauler) return haulerAI(s, game, dt);
   s.gunCd -= dt;
   s.energy = Math.min(100, s.energy + 18 * dt);

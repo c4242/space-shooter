@@ -505,6 +505,7 @@ export class UI {
     const hint = document.getElementById('menuHint');
     this.menuEl.classList.remove('hidden');
     btn2.classList.add('hidden');
+    document.getElementById('settings').classList.toggle('hidden', kind !== 'paused');
     if (kind === 'start') {
       if (hasSave()) {
         btn.textContent = 'CONTINUE';
@@ -513,7 +514,7 @@ export class UI {
       } else btn.textContent = 'LAUNCH';
     } else if (kind === 'paused') {
       title.textContent = 'PAUSED';
-      sub.textContent = 'Controls';
+      sub.textContent = 'Settings & controls';
       btn.textContent = 'RESUME';
       hint.textContent = 'P / Esc to resume · U toggles music · K mutes all sound';
     } else if (kind === 'dead') {
